@@ -18,6 +18,13 @@ FetchContent_MakeAvailable(googletest)
 add_library(cpusim_isa STATIC
     src/isa/rv32i/decoder.cpp
 )
+
+add_library(cpusim_uarch STATIC
+    src/uarch/alu.cpp
+)
+target_include_directories(cpusim_uarch PUBLIC include)
+target_link_libraries(cpusim_uarch PUBLIC cpusim_isa)
+target_compile_options(cpusim_uarch PRIVATE -Wall -Wextra -Werror)
 target_include_directories(cpusim_isa PUBLIC include)
 target_compile_options(cpusim_isa PRIVATE -Wall -Wextra -Werror)
 
@@ -33,3 +40,7 @@ endfunction()
 
 add_unit_test(regfile_test  tests/unit/regfile_test.cpp)
 add_unit_test(decoder_test  tests/unit/decoder_test.cpp)
+
+add_executable(alu_test tests/unit/alu_test.cpp)
+target_link_libraries(alu_test PRIVATE cpusim_uarch GTest::gtest_main)
+gtest_discover_tests(alu_test)
