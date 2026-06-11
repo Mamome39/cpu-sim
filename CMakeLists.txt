@@ -44,3 +44,7 @@ add_unit_test(decoder_test  tests/unit/decoder_test.cpp)
 add_executable(alu_test tests/unit/alu_test.cpp)
 target_link_libraries(alu_test PRIVATE cpusim_uarch GTest::gtest_main)
 gtest_discover_tests(alu_test)
+
+add_executable(latch_test tests/unit/latch_test.cpp)
+target_link_libraries(latch_test PRIVATE cpusim_uarch GTest::gtest_main)
+gtest_discover_tests(latch_test)

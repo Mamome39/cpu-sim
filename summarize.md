@@ -26,13 +26,15 @@ The simulator is not a functional step-through — it models **real hardware sem
 ### ISA Layer (`include/cpusim/isa/rv32i/`)
 | File | Role |
 |------|------|
-| `encoding.h` | Bit-field instruction layouts |
-| `decoder.h` | Combinational decode logic |
-| `defs.h` | Opcodes, funct3/7, register aliases |
+| `defs.h` | Opcodes, funct3/7, register aliases ✅ |
+| `encoding.h` | Bit-field instruction layouts ✅ |
+| `decoder.h` | Combinational decode logic ✅ |
 
 ### Microarchitecture (`include/cpusim/uarch/`)
 | File | Role |
 |------|------|
+| `regfile.h` | 32 x 32-bit register file (x0 hardwired zero) ✅ |
+| `alu.h` | Combinational ALU + branch comparator ✅ |
 | `latch.h` | Pipeline register template — the core abstraction |
 | `stage.h` | Base Stage interface: `evaluate()` + `latch()` |
 | `pipeline/fetch.h` | IF stage |
@@ -40,9 +42,7 @@ The simulator is not a functional step-through — it models **real hardware sem
 | `pipeline/execute.h` | EX stage |
 | `pipeline/mem_access.h` | MEM stage |
 | `pipeline/writeback.h` | WB stage |
-| `alu.h` | Combinational ALU |
 | `hazard.h` | Hazard detection + forwarding unit |
-| `regfile.h` | 32 x 32-bit register file (x0 hardwired zero) ✅ |
 
 ### Memory Hierarchy (`include/cpusim/memory/`)
 | File | Role |
@@ -79,8 +79,9 @@ The simulator is not a functional step-through — it models **real hardware sem
 | Milestone | Status |
 |-----------|--------|
 | Register file (`RegFile`) | Done ✅ |
-| ISA decoder | Not started |
-| ALU | Not started |
+| ISA decoder | Done ✅ |
+| ALU | Done ✅ |
+| Pipeline latch abstraction | In progress 🔄 |
 | 5-stage pipeline | Not started |
 | Hazard / forwarding unit | Not started |
 | L1 cache | Not started |
