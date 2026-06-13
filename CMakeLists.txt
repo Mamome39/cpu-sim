@@ -28,6 +28,7 @@ target_compile_options(cpusim_mem PRIVATE -Wall -Wextra -Werror)
 add_library(cpusim_uarch STATIC
     src/uarch/alu.cpp
     src/uarch/pipeline/fetch.cpp
+    src/uarch/pipeline/decode.cpp
 )
 target_include_directories(cpusim_uarch PUBLIC include)
 target_link_libraries(cpusim_uarch PUBLIC cpusim_isa cpusim_mem)
@@ -63,3 +64,7 @@ gtest_discover_tests(flat_mem_test)
 add_executable(fetch_test tests/unit/fetch_test.cpp)
 target_link_libraries(fetch_test PRIVATE cpusim_uarch GTest::gtest_main)
 gtest_discover_tests(fetch_test)
+
+add_executable(decode_stage_test tests/unit/decode_stage_test.cpp)
+target_link_libraries(decode_stage_test PRIVATE cpusim_uarch GTest::gtest_main)
+gtest_discover_tests(decode_stage_test)
