@@ -4,10 +4,12 @@
 #include "cpusim/uarch/latch.h"
 #include "cpusim/uarch/pipeline/fetch.h"
 #include "cpusim/uarch/pipeline/decode.h"
+#include "cpusim/uarch/pipeline/forward.h"
 #include "cpusim/uarch/pipeline/execute.h"
 #include "cpusim/uarch/pipeline/mem_access.h"
 #include "cpusim/uarch/pipeline/writeback.h"
 #include "cpusim/uarch/pipeline/pipe_regs.h"
+#include "cpusim/uarch/hazard.h"
 
 using namespace cpusim;
 using namespace cpusim::pipeline;
@@ -47,21 +49,28 @@ struct Pipeline {
 
     FetchStage      fetch {imem, if_id, BASE};
     DecodeStage     decode{rf, if_id, id_ex};
-    ExecuteStage    ex    {id_ex, ex_mem, fetch, decode};
+    ForwardUnit     fwd   {ex_mem, mem_wb};
+    ExecuteStage    ex    {id_ex, ex_mem, fwd, fetch, decode};
     MemAccessStage  mem   {dmem, ex_mem, mem_wb};
     WritebackStage  wb    {rf, mem_wb};
+    HazardUnit      hazard{if_id, id_ex, fetch, decode};
 
     void tick() {
         fetch.evaluate();
         decode.evaluate();
+        fwd.evaluate();    // snapshot mem_wb for 3-instr-gap forwarding
         ex.evaluate();
         mem.evaluate();
         wb.evaluate();
-        // latch order: wb and mem first (no outbound signals),
-        // then ex (signals fetch+decode), then decode and fetch.
+        hazard.evaluate(); // detect load-use
+
+        // latch order: fwd before mem (snapshot committed first),
+        // ex and hazard before decode/fetch (outbound signals applied).
         wb.latch();
-        mem.latch();
+        fwd.latch();
         ex.latch();
+        mem.latch();
+        hazard.latch();
         decode.latch();
         fetch.latch();
     }
@@ -124,8 +133,37 @@ TEST(Pipeline, BranchTakenFlushesWrongPath) {
     EXPECT_EQ(p.rf.read(3), 42u);
 }
 
+// EX->EX forwarding: ADDI x1,1 immediately followed by ADDI x2,x1,1.
+// Without forwarding x2 would get 0+1=1; with forwarding x2=1+1=2.
+// addi x2, x1, 1 = 0x00108113
+TEST(Pipeline, ForwardingExToEx) {
+    Pipeline p;
+    p.load_program({ADDI_X1_1,    // x1 = 1
+                    0x00108113u,  // addi x2, x1, 1  (x2 = x1+1 = 2)
+                    NOP, NOP, NOP, NOP});
+    for (int i = 0; i < 6; ++i) p.tick();
+    EXPECT_EQ(p.rf.read(1), 1u);
+    EXPECT_EQ(p.rf.read(2), 2u);
+}
+
+// Load-use stall: LW x1 followed immediately by ADDI x2,x1,5.
+// Hazard unit inserts one bubble; MEM->EX forwarding delivers the result.
+// lw x1, 0(x3) = 0x0001A083  (x3 holds BASE)
+// addi x2, x1, 5 = 0x00508113
+TEST(Pipeline, LoadUseStallThenForward) {
+    Pipeline p;
+    p.dmem.store_word(BASE, 10u);  // mem[BASE] = 10
+    p.rf.write(3, BASE);           // x3 = base address
+    p.load_program({0x0001A083u,   // lw  x1, 0(x3)
+                    0x00508113u,   // addi x2, x1, 5
+                    NOP, NOP, NOP, NOP, NOP});
+    // lw completes WB at cycle 5; addi (stalled one cycle) at cycle 7.
+    for (int i = 0; i < 9; ++i) p.tick();
+    EXPECT_EQ(p.rf.read(1), 10u);
+    EXPECT_EQ(p.rf.read(2), 15u);
+}
+
 // SW followed by NOPs then LW — store visible to the load through dmem.
-// Hazard avoided manually with NOPs (no hazard unit yet).
 TEST(Pipeline, StoreWordThenLoadWordWritesRegFile) {
     Pipeline p;
     p.rf.write(1, BASE);      // base address

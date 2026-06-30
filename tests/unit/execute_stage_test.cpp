@@ -3,6 +3,7 @@
 #include "cpusim/uarch/latch.h"
 #include "cpusim/uarch/pipeline/fetch.h"
 #include "cpusim/uarch/pipeline/decode.h"
+#include "cpusim/uarch/pipeline/forward.h"
 #include "cpusim/uarch/pipeline/execute.h"
 #include "cpusim/uarch/pipeline/pipe_regs.h"
 #include "cpusim/isa/rv32i/decoder.h"
@@ -14,8 +15,6 @@ using namespace cpusim::rv32i;
 
 static constexpr uint32_t PC = 0x80000000;
 
-// Minimal stubs so ExecuteStage has real FetchStage / DecodeStage
-// objects to call set_redirect / set_flush on.
 static FlatMem& stub_mem() {
     static FlatMem m(0x80000000, 0x1000);
     return m;
@@ -25,10 +24,12 @@ struct Fixture {
     Latch<IfId>   if_id;
     Latch<IdEx>   id_ex;
     Latch<ExMem>  ex_mem;
+    Latch<MemWb>  mem_wb;
     RegFile       rf;
     FetchStage    fetch{stub_mem(), if_id, PC};
     DecodeStage   decode{rf, if_id, id_ex};
-    ExecuteStage  ex{id_ex, ex_mem, fetch, decode};
+    ForwardUnit   fwd{ex_mem, mem_wb};
+    ExecuteStage  ex{id_ex, ex_mem, fwd, fetch, decode};
 
     // Push a pre-built IdEx into the latch so ExecuteStage can read it.
     void load(const IdEx& v) { id_ex.write(v); id_ex.latch(); }
