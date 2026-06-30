@@ -1,42 +1,81 @@
 # cpu-sim
 
-A side project to solidify computer architecture knowledge through implementation, with Claude as the primary coding contributor.
+A cycle-accurate CPU + memory simulator built as a learning milestone in computer architecture.
+Immediate target: **RV32I (RISC-V 32-bit integer)** as a clean on-ramp to the ultimate goal of working with **ARM ISA**.
 
 ### Collaboration Model
 Claude implements source code and tests. I review, direct goals, and validate correctness.
 
-### Final Goal
-A progressively more realistic processor model, built in stages:
+---
 
-| Stage | Feature |
-|-------|---------|
-| 1 | 5-stage in-order pipeline (IF → ID → EX → MEM → WB) |
-| 2 | Data hazard detection + forwarding (hazard unit) |
-| 3 | L1 I-cache + D-cache (write-back, write-allocate, second-chance eviction) |
-| 4 | L2 unified cache |
-| 5 | Branch predictor |
-| 6 | TLB + virtual memory |
-| 7 | Tomasulo algorithm + reorder buffer (out-of-order execution) |
-| 8 | Fine-grained multithreading |
-| 9 | OS support (context switch, syscall handling) |
+## Design Philosophy
 
-### Microarchitecture Design
-5-stage pipeline: IF → ID → EX → MEM → WB
+The simulator models **real hardware semantics**, not a functional step-through:
 
-Each stage follows a two-phase protocol modelling real flip-flop behaviour:
-- `evaluate()` — combinational logic; computes results into a shadow register
-- `latch()` — clocked commit; shadow → pipeline register (stall = skip, flush = clear)
+- Pipeline stages separate **combinational logic** (`evaluate()`) from **sequential elements** (`latch()`), matching RTL flip-flop behaviour.
+- Each clock cycle: all stages evaluate in parallel, then all latch simultaneously. Stalls skip `latch()`; flushes clear it.
+- The ISA layer is **isolated and swappable** — `uarch/` and `memory/` are ISA-agnostic, so adding `isa/arm/` later leaves the core intact.
 
-### Design Decisions
+---
+
+## Design Decisions
+
 - Branch outcome resolved in EX stage (2-cycle penalty on mispredict; no predictor yet)
 
-### Progress
-- [x] Base components: `RegFile`, `FlatMem`, `IMemory` interface
-- [x] RV32I decode layer: constants, field extractors, instruction decoder
-- [x] ALU + branch comparator
-- [x] Latch\<T\> template
-- [x] Pipeline stages: IF, ID, EX, MEM
-- [ ] Pipeline stage: WB
-- [ ] Hazard unit (load-use stall + forwarding)
-- [ ] Full pipeline integration + simulation loop
-- [ ] Spike diff-testing against commit trace
+---
+
+## Architecture
+
+### ISA Layer (`include/cpusim/isa/rv32i/`)
+| File | Role |
+|------|------|
+| `defs.h` | Opcodes, funct3/7, register aliases |
+| `encoding.h` | Bit-field extractors and immediate decoders |
+| `decoder.h` | Combinational decode — raw word → `Instruction` |
+
+### Microarchitecture (`include/cpusim/uarch/`)
+| File | Role |
+|------|------|
+| `regfile.h` | 32 × 32-bit register file (x0 hardwired zero) |
+| `alu.h` | Combinational ALU + branch comparator |
+| `latch.h` | Pipeline register template (`write` / `latch` / `flush`) |
+| `stage.h` | Abstract base: `evaluate()` + `latch()` |
+| `pipeline/pipe_regs.h` | IfId, IdEx, ExMem, MemWb structs |
+| `pipeline/fetch.h` | IF stage |
+| `pipeline/decode.h` | ID stage |
+| `pipeline/execute.h` | EX stage |
+| `pipeline/mem_access.h` | MEM stage |
+| `pipeline/writeback.h` | WB stage *(pending)* |
+| `hazard.h` | Hazard detection + forwarding unit *(pending)* |
+
+### Memory (`include/cpusim/memory/`)
+| File | Role |
+|------|------|
+| `mem_interface.h` | `IMemory` — abstract interface all levels implement |
+| `flat_mem.h` | Byte-addressable backing store (little-endian) |
+| `cache.h` | Parameterised cache (sets/ways/line size) *(future)* |
+
+### Simulation Infrastructure (`include/cpusim/sim/`) *(future)*
+| File | Role |
+|------|------|
+| `core.h` | Wires all stages + memory together |
+| `tracer.h` | Commit trace output for Spike diff-testing |
+
+---
+
+## Roadmap
+
+| Stage | Feature | Status |
+|-------|---------|--------|
+| 1 | 5-stage in-order pipeline (IF → ID → EX → MEM → WB) | WB pending 🔄 |
+| 2 | Hazard unit — load-use stall + forwarding | Not started |
+| 3 | Full pipeline integration + simulation loop | Not started |
+| 4 | Spike diff-testing against commit trace | Not started |
+| 5 | L1 I-cache + D-cache (write-back, write-allocate, second-chance) | Not started |
+| 6 | L2 unified cache | Not started |
+| 7 | Branch predictor | Not started |
+| 8 | TLB + virtual memory | Not started |
+| 9 | Tomasulo + ROB (out-of-order execution) | Not started |
+| 10 | Fine-grained multithreading | Not started |
+| 11 | OS support (context switch, syscall handling) | Not started |
+| 12 | ARM ISA (`isa/arm/`) | Future |
