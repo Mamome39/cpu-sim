@@ -1,3 +1,11 @@
+# Usage:
+#   Configure: cmake -S . -B build
+#   Build:     cmake --build build -j$(nproc)
+#   Test all:  ctest --output-on-failure (run from build/)
+#   One test:  cmake --build build --target <test_name>
+#              ./build/<test_name> --gtest_filter=Suite.Test
+#   Clean:     rm -rf build/
+
 cmake_minimum_required(VERSION 3.20)
 project(cpu-sim CXX)
 
@@ -78,3 +86,7 @@ gtest_discover_tests(execute_stage_test)
 add_executable(mem_stage_test tests/unit/mem_stage_test.cpp)
 target_link_libraries(mem_stage_test PRIVATE cpusim_uarch GTest::gtest_main)
 gtest_discover_tests(mem_stage_test)
+
+add_executable(pipeline_test tests/integration/pipeline_test.cpp)
+target_link_libraries(pipeline_test PRIVATE cpusim_uarch GTest::gtest_main)
+gtest_discover_tests(pipeline_test)
