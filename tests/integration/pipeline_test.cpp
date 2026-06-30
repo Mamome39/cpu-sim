@@ -6,6 +6,7 @@
 #include "cpusim/uarch/pipeline/decode.h"
 #include "cpusim/uarch/pipeline/execute.h"
 #include "cpusim/uarch/pipeline/mem_access.h"
+#include "cpusim/uarch/pipeline/writeback.h"
 #include "cpusim/uarch/pipeline/pipe_regs.h"
 
 using namespace cpusim;
@@ -13,26 +14,24 @@ using namespace cpusim::pipeline;
 using namespace cpusim::rv32i;
 
 // ── Encodings ─────────────────────────────────────────────────────────────────
-
-// addi x1, x0, 1   0x00100093
-// addi x2, x0, 2   0x00200113
-// addi x3, x0, 42  0x02A00193
-// sw x2, 0(x1)     0x00208023  (base=x1, data=x2, offset=0)
-// lw x4, 0(x1)     0x00008203  (base=x1, offset=0)
-// beq x0, x0, +12  0x00C00463
+// addi x1, x0, 1    0x00100093
+// addi x2, x0, 2    0x00200113
+// addi x3, x0, 42   0x02A00193
+// sw   x2, 0(x1)    0x0020A023  funct3=010
+// lw   x4, 0(x1)    0x0000A203  funct3=010
+// beq  x0, x0, +12  0x00000663
 // nop (addi x0,x0,0) 0x00000013
 
 static constexpr uint32_t BASE = 0x80000000;
 static constexpr size_t   SZ   = 0x2000;
 
-static constexpr uint32_t NOP         = 0x00000013u;
-static constexpr uint32_t ADDI_X1_1   = 0x00100093u;
-static constexpr uint32_t ADDI_X2_2   = 0x00200113u;
-static constexpr uint32_t ADDI_X3_42  = 0x02A00193u;
-static constexpr uint32_t SW_X2_0_X1  = 0x0020A023u;  // funct3=010
-static constexpr uint32_t LW_X4_0_X1  = 0x0000A203u;  // funct3=010
-// beq x0, x0, +12
-static constexpr uint32_t BEQ_SKIP3   = 0x00000663u;
+static constexpr uint32_t NOP        = 0x00000013u;
+static constexpr uint32_t ADDI_X1_1  = 0x00100093u;
+static constexpr uint32_t ADDI_X2_2  = 0x00200113u;
+static constexpr uint32_t ADDI_X3_42 = 0x02A00193u;
+static constexpr uint32_t SW_X2_0_X1 = 0x0020A023u;
+static constexpr uint32_t LW_X4_0_X1 = 0x0000A203u;
+static constexpr uint32_t BEQ_SKIP3  = 0x00000663u;  // beq x0,x0,+12
 
 // ── Pipeline fixture ──────────────────────────────────────────────────────────
 
@@ -46,18 +45,21 @@ struct Pipeline {
     Latch<ExMem> ex_mem;
     Latch<MemWb> mem_wb;
 
-    FetchStage     fetch {imem, if_id, BASE};
-    DecodeStage    decode{rf, if_id, id_ex};
-    ExecuteStage   ex    {id_ex, ex_mem, fetch, decode};
-    MemAccessStage mem   {dmem, ex_mem, mem_wb};
+    FetchStage      fetch {imem, if_id, BASE};
+    DecodeStage     decode{rf, if_id, id_ex};
+    ExecuteStage    ex    {id_ex, ex_mem, fetch, decode};
+    MemAccessStage  mem   {dmem, ex_mem, mem_wb};
+    WritebackStage  wb    {rf, mem_wb};
 
     void tick() {
         fetch.evaluate();
         decode.evaluate();
         ex.evaluate();
         mem.evaluate();
-        // latch order: mem first (no signals), then ex (signals fetch+decode),
-        // then decode and fetch consume those signals.
+        wb.evaluate();
+        // latch order: wb and mem first (no outbound signals),
+        // then ex (signals fetch+decode), then decode and fetch.
+        wb.latch();
         mem.latch();
         ex.latch();
         decode.latch();
@@ -75,73 +77,65 @@ struct Pipeline {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-// A single addi takes 4 cycles to reach MemWb (pipeline fill).
-TEST(Pipeline, AddiReachesMemWbAfterFourCycles) {
+// addi x3, x0, 42 takes 5 cycles to reach WB (pipeline fill + writeback).
+TEST(Pipeline, AddiWritesRegFileAfterFiveCycles) {
     Pipeline p;
-    p.load_program({ADDI_X3_42, NOP, NOP, NOP});
+    p.load_program({ADDI_X3_42, NOP, NOP, NOP, NOP});
 
-    for (int i = 0; i < 4; ++i) p.tick();
+    for (int i = 0; i < 5; ++i) p.tick();
 
-    EXPECT_TRUE(p.mem_wb.read().valid);
-    EXPECT_EQ(p.mem_wb.read().op,     Op::ADDI);
-    EXPECT_EQ(p.mem_wb.read().rd,     3u);
-    EXPECT_EQ(p.mem_wb.read().wb_val, 42u);
+    EXPECT_EQ(p.rf.read(3), 42u);
 }
 
-// Two addi instructions should appear in MemWb on consecutive cycles.
-TEST(Pipeline, TwoInstrsFlowInOrder) {
+// Two addi results committed to the register file on consecutive cycles.
+TEST(Pipeline, TwoInstrsWriteRegFileInOrder) {
     Pipeline p;
-    p.load_program({ADDI_X1_1, ADDI_X2_2, NOP, NOP, NOP});
+    p.load_program({ADDI_X1_1, ADDI_X2_2, NOP, NOP, NOP, NOP});
 
-    for (int i = 0; i < 4; ++i) p.tick();
-    EXPECT_EQ(p.mem_wb.read().rd,     1u);
-    EXPECT_EQ(p.mem_wb.read().wb_val, 1u);
+    for (int i = 0; i < 5; ++i) p.tick();
+    EXPECT_EQ(p.rf.read(1), 1u);
 
     p.tick();
-    EXPECT_EQ(p.mem_wb.read().rd,     2u);
-    EXPECT_EQ(p.mem_wb.read().wb_val, 2u);
+    EXPECT_EQ(p.rf.read(2), 2u);
 }
 
-// BEQ x0,x0 is always taken. After it resolves in EX (cycle 3),
-// the two wrong-path slots behind it must be bubbles, and PC must
-// have redirected to the branch target.
+// BEQ x0,x0 is always taken. Wrong-path instructions must be flushed;
+// PC redirects to target; ADDI_X3_42 at target writes x3.
 TEST(Pipeline, BranchTakenFlushesWrongPath) {
     Pipeline p;
     // beq x0,x0,+12 at BASE → target = BASE+12
-    // slots BASE+4 and BASE+8 are wrong-path addi's that must be flushed
     p.load_program({BEQ_SKIP3,
-                    ADDI_X1_1,   // wrong-path — must become bubble
-                    ADDI_X2_2,   // wrong-path — must become bubble
-                    ADDI_X3_42}); // target (BASE+12): should execute
+                    ADDI_X1_1,   // wrong-path — must be flushed
+                    ADDI_X2_2,   // wrong-path — must be flushed
+                    ADDI_X3_42}); // at BASE+12: correct path
 
-    // Run until BEQ reaches EX (3 cycles) and its latch() fires redirect.
+    // 3 cycles: BEQ reaches EX → redirect fires.
     for (int i = 0; i < 3; ++i) p.tick();
-
-    // After redirect: IfId and IdEx must be bubbles.
     EXPECT_FALSE(p.if_id.read().valid);
     EXPECT_FALSE(p.id_ex.read().valid);
-
-    // PC must be at the branch target.
     EXPECT_EQ(p.fetch.pc(), BASE + 12u);
+
+    // Wrong-path addi's must not have written x1 or x2.
+    EXPECT_EQ(p.rf.read(1), 0u);
+    EXPECT_EQ(p.rf.read(2), 0u);
+
+    // Run until ADDI_X3_42 completes WB (2 more cycles to fill + WB).
+    for (int i = 0; i < 5; ++i) p.tick();
+    EXPECT_EQ(p.rf.read(3), 42u);
 }
 
-// SW followed by enough NOPs for the store to complete, then LW.
-// Verifies memory is written and read back through the pipeline.
-// (No hazard unit yet — NOPs separate the hazard manually.)
-TEST(Pipeline, StoreWordThenLoadWord) {
+// SW followed by NOPs then LW — store visible to the load through dmem.
+// Hazard avoided manually with NOPs (no hazard unit yet).
+TEST(Pipeline, StoreWordThenLoadWordWritesRegFile) {
     Pipeline p;
-    // x1 = 1 (base address = BASE+1... use dmem base directly)
-    // We set up x1 in the regfile manually to avoid hazard.
-    p.rf.write(1, BASE);  // base address
-    p.rf.write(2, 0xABCDu);  // store data
+    p.rf.write(1, BASE);      // base address
+    p.rf.write(2, 0xABCDu);   // store data
 
-    // sw x2, 0(x1) then NOPs then lw x4, 0(x1)
-    p.load_program({SW_X2_0_X1, NOP, NOP, NOP, LW_X4_0_X1, NOP, NOP, NOP});
+    p.load_program({SW_X2_0_X1, NOP, NOP, NOP, LW_X4_0_X1, NOP, NOP, NOP, NOP});
 
-    // Run enough cycles for SW to reach MEM (4 cycles) and
-    // LW to reach MEM (4 more cycles after SW).
-    for (int i = 0; i < 8; ++i) p.tick();
+    // SW reaches MEM at cycle 4 (store committed to dmem).
+    // LW reaches WB at cycle 9 (x4 written).
+    for (int i = 0; i < 9; ++i) p.tick();
 
-    EXPECT_EQ(p.mem_wb.read().op,     Op::LW);
-    EXPECT_EQ(p.mem_wb.read().wb_val, 0xABCDu);
+    EXPECT_EQ(p.rf.read(4), 0xABCDu);
 }
