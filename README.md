@@ -58,8 +58,20 @@ The simulator models **real hardware semantics**, not a functional step-through:
 ### Simulation Infrastructure (`include/cpusim/sim/`) *(future)*
 | File | Role |
 |------|------|
-| `core.h` | Wires all stages + memory together |
+| `core.h` | Wires all stages + memory together, drives tick loop |
 | `tracer.h` | Commit trace output for Spike diff-testing |
+| `sim_config.h` | Per-component latency config (see below) |
+| `sim_stats.h` | Cycle counter, IPC, stall breakdown collector |
+
+---
+
+## Performance Benchmarking
+
+The simulator supports two output modes:
+
+**Correctness mode** — commit trace compared against Spike (`--log-commits`). Validates register values, memory writes, and PC sequencing.
+
+**Performance mode** — counts cycles and reports where they were spent. Component latencies are configured in `SimConfig` before the run (e.g. L1=1 cycle, L2=10 cycles, DRAM=100 cycles, TLB=4 cycles). `SimStats` accumulates stall causes each cycle — load-use, cache miss, TLB miss, branch mispredict — and prints a summary with total cycles, instructions retired, IPC, and per-cause stall counts at the end.
 
 ---
 
@@ -71,6 +83,7 @@ The simulator models **real hardware semantics**, not a functional step-through:
 | 2 | Hazard unit — load-use stall + forwarding | Not started |
 | 3 | Full pipeline integration + simulation loop | Not started |
 | 4 | Spike diff-testing against commit trace | Not started |
+| 4b | Performance mode — `SimConfig` latency knobs + `SimStats` report | Not started |
 | 5 | L1 I-cache + D-cache (write-back, write-allocate, second-chance) | Not started |
 | 6 | L2 unified cache | Not started |
 | 7 | Branch predictor | Not started |
