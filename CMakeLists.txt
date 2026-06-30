@@ -39,6 +39,7 @@ add_library(cpusim_uarch STATIC
     src/uarch/pipeline/decode.cpp
     src/uarch/pipeline/execute.cpp
     src/uarch/pipeline/mem_access.cpp
+    src/uarch/pipeline/writeback.cpp
 )
 target_include_directories(cpusim_uarch PUBLIC include)
 target_link_libraries(cpusim_uarch PUBLIC cpusim_isa cpusim_mem)
@@ -86,6 +87,10 @@ gtest_discover_tests(execute_stage_test)
 add_executable(mem_stage_test tests/unit/mem_stage_test.cpp)
 target_link_libraries(mem_stage_test PRIVATE cpusim_uarch GTest::gtest_main)
 gtest_discover_tests(mem_stage_test)
+
+add_executable(writeback_stage_test tests/unit/writeback_stage_test.cpp)
+target_link_libraries(writeback_stage_test PRIVATE cpusim_uarch GTest::gtest_main)
+gtest_discover_tests(writeback_stage_test)
 
 add_executable(pipeline_test tests/integration/pipeline_test.cpp)
 target_link_libraries(pipeline_test PRIVATE cpusim_uarch GTest::gtest_main)
