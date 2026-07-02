@@ -22,6 +22,32 @@ The simulator models **real hardware semantics**, not a functional step-through:
 
 - Branch outcome resolved in EX stage (2-cycle penalty on mispredict; no predictor yet)
 
+### Hazard Detection and Forwarding
+
+**Forwarding (ForwardUnit)** resolves data hazards for three gaps:
+
+| Gap | Source | Path |
+|-----|--------|------|
+| 1 instruction | `ex_mem.alu_out` | EX → EX |
+| 2 instructions | `mem_wb.wb_val` | MEM → EX |
+| 3 instructions | `prev_mem_wb` | WB → EX |
+
+`ForwardUnit` is stateful: it owns `prev_mem_wb`, a snapshot of `mem_wb`
+captured each `evaluate()` and committed in `latch()` before `mem.latch()`
+overwrites it. The other two sources are live pipeline latch references.
+`ExecuteStage` calls `fwd.resolve()` for both operands and the store data.
+
+**Load-use stall (HazardUnit)** handles the one case forwarding cannot:
+a load result needed by the very next instruction (data not available until
+end of MEM). On detection the hazard unit stalls IF (PC frozen) and flushes
+ID (bubble into id_ex), giving the load one extra cycle to reach MEM.
+
+Detection reads `rs1`/`rs2` from `if_id.raw` at fixed bit positions
+[19:15] and [24:20] — the same positions the decode unit reads in parallel.
+RV32I places register indices at these fixed offsets in every instruction
+format precisely so hazard detection can run without waiting for decode output,
+matching real hardware behaviour.
+
 ---
 
 ## Architecture
@@ -45,8 +71,9 @@ The simulator models **real hardware semantics**, not a functional step-through:
 | `pipeline/decode.h` | ID stage |
 | `pipeline/execute.h` | EX stage |
 | `pipeline/mem_access.h` | MEM stage |
-| `pipeline/writeback.h` | WB stage *(pending)* |
-| `hazard.h` | Hazard detection + forwarding unit *(pending)* |
+| `pipeline/writeback.h` | WB stage |
+| `pipeline/forward.h` | Operand forwarding (3 paths, owns `prev_mem_wb`) |
+| `hazard.h` | Load-use stall detection |
 
 ### Memory (`include/cpusim/memory/`)
 | File | Role |
@@ -79,8 +106,8 @@ The simulator supports two output modes:
 
 | Stage | Feature | Status |
 |-------|---------|--------|
-| 1 | 5-stage in-order pipeline (IF → ID → EX → MEM → WB) | WB pending 🔄 |
-| 2 | Hazard unit — load-use stall + forwarding | Not started |
+| 1 | 5-stage in-order pipeline (IF → ID → EX → MEM → WB) | Done ✅ |
+| 2 | Hazard unit — load-use stall + forwarding | Done ✅ |
 | 3 | Full pipeline integration + simulation loop | Not started |
 | 4 | Spike diff-testing against commit trace | Not started |
 | 4b | Performance mode — `SimConfig` latency knobs + `SimStats` report | Not started |

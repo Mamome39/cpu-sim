@@ -20,7 +20,7 @@ void HazardUnit::evaluate() {
     const pipeline::IdEx& ex = id_ex_.read();
     const pipeline::IfId& fe = if_id_.read();
 
-    if (!ex.valid || !fe.valid)       return;
+    if (!ex.valid)                      return;
     if (!is_load(ex.op) || ex.rd == 0) return;
 
     // Extract rs1 (bits 19:15) and rs2 (bits 24:20) from the raw
