@@ -36,8 +36,9 @@ bool Core::tick() {
     wb_.evaluate();
     hazard_.evaluate();
 
-    // Detect EBREAK reaching WB before any latch commits.
     const pipeline::MemWb& wb_in = mem_wb_.read();
+    if (tracer_ && wb_in.valid) tracer_->record(wb_in);
+    // Detect EBREAK reaching WB before any latch commits.
     if (wb_in.valid && wb_in.op == rv32i::Op::EBREAK)
         halted_ = true;
 

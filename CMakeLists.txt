@@ -96,6 +96,7 @@ gtest_discover_tests(writeback_stage_test)
 
 add_library(cpusim_sim STATIC
     src/sim/core.cpp
+    src/sim/tracer.cpp
 )
 target_include_directories(cpusim_sim PUBLIC include)
 target_link_libraries(cpusim_sim PUBLIC cpusim_uarch)
@@ -108,6 +109,10 @@ gtest_discover_tests(hazard_test)
 add_executable(core_test tests/integration/core_test.cpp)
 target_link_libraries(core_test PRIVATE cpusim_sim GTest::gtest_main)
 gtest_discover_tests(core_test)
+
+add_executable(trace_test tests/integration/trace_test.cpp)
+target_link_libraries(trace_test PRIVATE cpusim_sim GTest::gtest_main)
+gtest_discover_tests(trace_test)
 
 add_executable(pipeline_test tests/integration/pipeline_test.cpp)
 target_link_libraries(pipeline_test PRIVATE cpusim_uarch GTest::gtest_main)

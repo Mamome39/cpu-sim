@@ -20,6 +20,7 @@ void DecodeStage::evaluate() {
 
     pipeline::IdEx ex;
     ex.pc      = fetch.pc;
+    ex.raw     = fetch.raw;
     ex.op      = insn.op;
     ex.rd      = insn.rd;
     ex.rs1     = insn.rs1;

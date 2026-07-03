@@ -62,6 +62,7 @@ void ExecuteStage::evaluate() {
 
     pipeline::ExMem ex;
     ex.pc            = id.pc;
+    ex.raw           = id.raw;
     ex.op            = id.op;
     ex.rd            = id.rd;
     ex.alu_out       = alu_out;

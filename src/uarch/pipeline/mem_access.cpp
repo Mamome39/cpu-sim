@@ -20,6 +20,7 @@ void MemAccessStage::evaluate() {
 
     pipeline::MemWb wb;
     wb.pc    = ex.pc;
+    wb.raw   = ex.raw;
     wb.op    = ex.op;
     wb.rd    = ex.rd;
     wb.valid = true;
@@ -48,21 +49,25 @@ void MemAccessStage::evaluate() {
             wb.wb_val = dmem_.load_byte(addr);
             break;
 
-        // ── Stores — write to memory, wb_val unused by WB ─────
-        case Op::SW:
-            dmem_.store_word(addr, ex.rs2_val);
-            wb.wb_val = 0;
+        // ── Stores — record addr/val for tracer; no reg write ──
+        case Op::SW: {
+            uint32_t val = ex.rs2_val;
+            dmem_.store_word(addr, val);
+            wb.is_store = true; wb.mem_addr = addr; wb.mem_val = val;
             break;
-        case Op::SH:
-            dmem_.store_half(addr,
-                static_cast<uint16_t>(ex.rs2_val & 0xFFFF));
-            wb.wb_val = 0;
+        }
+        case Op::SH: {
+            uint32_t val = ex.rs2_val & 0xFFFFu;
+            dmem_.store_half(addr, static_cast<uint16_t>(val));
+            wb.is_store = true; wb.mem_addr = addr; wb.mem_val = val;
             break;
-        case Op::SB:
-            dmem_.store_byte(addr,
-                static_cast<uint8_t>(ex.rs2_val & 0xFF));
-            wb.wb_val = 0;
+        }
+        case Op::SB: {
+            uint32_t val = ex.rs2_val & 0xFFu;
+            dmem_.store_byte(addr, static_cast<uint8_t>(val));
+            wb.is_store = true; wb.mem_addr = addr; wb.mem_val = val;
             break;
+        }
 
         // ── All other ops — pass ALU result through ────────────
         default:

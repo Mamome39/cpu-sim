@@ -141,6 +141,64 @@ reaches EX (same mechanism as branch redirect), which is not yet implemented.
 
 ---
 
+## Spike Diff-Testing
+
+`Tracer` (`sim/tracer.h`) records one commit-log line per retired instruction
+in Spike's `--log-commits` format:
+
+```
+core   0: 3 0x80000000 (0x00100093) ra   0x00000001
+core   0: 3 0x80000010 (0x0030a023) mem 0x80000000 0x0000002a
+core   0: 3 0x80000018 (0x00100073)
+```
+
+Fields: privilege level (3 = M-mode), PC, raw encoding, and either a
+register write (`<abi-name>  0x<val>`) or a memory write (`mem <addr> <val>`).
+Instructions with rd = x0 and no memory write produce no trailing field.
+
+### Attaching the tracer
+
+```cpp
+std::ostringstream trace;
+cpusim::Tracer t(trace);
+core.set_tracer(&t);
+core.run();
+// trace.str() now holds the full commit log
+```
+
+### Golden traces (`tests/traces/`)
+
+Pre-generated golden files live in `tests/traces/`. The `trace_test`
+integration suite compares the simulator's output against these files.
+They were produced by reasoning through each program by hand and can be
+regenerated at any time using Spike.
+
+### Regenerating with Spike
+
+1. Install Spike and the RV32I toolchain:
+   ```
+   brew install riscv-tools          # macOS, or build from source
+   ```
+
+2. Assemble a test program and link it to the same base address:
+   ```
+   riscv32-unknown-elf-as -march=rv32i -o prog.o prog.s
+   riscv32-unknown-elf-ld -Ttext=0x80000000 -o prog prog.o
+   ```
+
+3. Run Spike to produce the golden trace:
+   ```
+   spike --isa=rv32i --log-commits -m0x80000000:0x10000 prog \
+       2>tests/traces/<name>.trace
+   ```
+
+4. Trim any Spike preamble lines (privilege setup before your first
+   instruction) so the trace starts at PC `0x80000000`.
+
+5. Update the expected string in `trace_test.cpp` to match the new file.
+
+---
+
 ## Performance Benchmarking
 
 The simulator supports two output modes:
@@ -158,7 +216,7 @@ The simulator supports two output modes:
 | 1 | 5-stage in-order pipeline (IF → ID → EX → MEM → WB) | Done ✅ |
 | 2 | Hazard unit — load-use stall + forwarding | Done ✅ |
 | 3 | Full pipeline integration + simulation loop | Done ✅ |
-| 4 | Spike diff-testing against commit trace | Not started |
+| 4 | Spike diff-testing against commit trace | In progress 🔧 |
 | 4b | Performance mode — `SimConfig` latency knobs + `SimStats` report | Not started |
 | 5 | L1 I-cache + D-cache (write-back, write-allocate, second-chance) | Not started |
 | 6 | L2 unified cache | Not started |

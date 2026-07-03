@@ -12,6 +12,7 @@
 #include "cpusim/uarch/pipeline/mem_access.h"
 #include "cpusim/uarch/pipeline/writeback.h"
 #include "cpusim/uarch/hazard.h"
+#include "cpusim/sim/tracer.h"
 
 namespace cpusim {
 
@@ -41,6 +42,9 @@ public:
 
     // Run until halted or max_cycles total cycles are reached.
     void run(uint64_t max_cycles = ~0ULL);
+
+    // Attach a tracer before running; nullptr disables tracing.
+    void set_tracer(Tracer* t) { tracer_ = t; }
 
     // State inspection
     uint32_t read_reg(uint8_t reg)    const;
@@ -77,6 +81,7 @@ private:
     WritebackStage wb_;
     HazardUnit     hazard_;
 
+    Tracer*  tracer_  = nullptr;
     uint64_t cycles_ = 0;
     bool     halted_ = false;
 };
