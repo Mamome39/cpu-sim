@@ -1,5 +1,6 @@
 #include "cpusim/sim/core.h"
 #include "cpusim/isa/rv32i/decoder.h"
+#include <cstdio>
 
 namespace cpusim {
 
@@ -75,6 +76,15 @@ void Core::write_reg(uint8_t reg, uint32_t val) {
 
 void Core::store_word(uint32_t addr, uint32_t val) {
     dmem_.store_word(addr, val);
+}
+
+void Core::read_regs() const {
+    for (int i = 0; i < 16; ++i) {
+        int j = i + 16;
+        std::printf(" x%-2d %4s = 0x%08X    x%-2d %4s = 0x%08X\n",
+                    i, abi_name(i),    rf_.read(i),
+                    j, abi_name(j),    rf_.read(j));
+    }
 }
 
 }  // namespace cpusim

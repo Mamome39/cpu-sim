@@ -49,6 +49,9 @@ public:
     uint64_t cycles() const { return cycles_; }
     bool     halted() const { return halted_; }
 
+    // Print all 32 registers to stdout in two-column format.
+    void read_regs() const;
+
     // Pre-run setup (backdoor writes for test / ELF loader use)
     void write_reg(uint8_t reg, uint32_t val);
     void store_word(uint32_t addr, uint32_t val);
