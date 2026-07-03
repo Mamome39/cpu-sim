@@ -94,9 +94,20 @@ add_executable(writeback_stage_test tests/unit/writeback_stage_test.cpp)
 target_link_libraries(writeback_stage_test PRIVATE cpusim_uarch GTest::gtest_main)
 gtest_discover_tests(writeback_stage_test)
 
+add_library(cpusim_sim STATIC
+    src/sim/core.cpp
+)
+target_include_directories(cpusim_sim PUBLIC include)
+target_link_libraries(cpusim_sim PUBLIC cpusim_uarch)
+target_compile_options(cpusim_sim PRIVATE -Wall -Wextra -Werror)
+
 add_executable(hazard_test tests/unit/hazard_test.cpp)
 target_link_libraries(hazard_test PRIVATE cpusim_uarch GTest::gtest_main)
 gtest_discover_tests(hazard_test)
+
+add_executable(core_test tests/integration/core_test.cpp)
+target_link_libraries(core_test PRIVATE cpusim_sim GTest::gtest_main)
+gtest_discover_tests(core_test)
 
 add_executable(pipeline_test tests/integration/pipeline_test.cpp)
 target_link_libraries(pipeline_test PRIVATE cpusim_uarch GTest::gtest_main)

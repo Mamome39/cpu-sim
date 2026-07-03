@@ -82,13 +82,62 @@ matching real hardware behaviour.
 | `flat_mem.h` | Byte-addressable backing store (little-endian) |
 | `cache.h` | Parameterised cache (sets/ways/line size) *(future)* |
 
-### Simulation Infrastructure (`include/cpusim/sim/`) *(future)*
+### Simulation Infrastructure (`include/cpusim/sim/`)
 | File | Role |
 |------|------|
 | `core.h` | Wires all stages + memory together, drives tick loop |
-| `tracer.h` | Commit trace output for Spike diff-testing |
-| `sim_config.h` | Per-component latency config (see below) |
-| `sim_stats.h` | Cycle counter, IPC, stall breakdown collector |
+| `tracer.h` | Commit trace output for Spike diff-testing *(future)* |
+| `sim_config.h` | Per-component latency config *(future)* |
+| `sim_stats.h` | Cycle counter, IPC, stall breakdown collector *(future)* |
+
+---
+
+## Simulation
+
+`Core` (`sim/core.h`) wires the full pipeline and drives the clock loop.
+
+### Setup
+
+```cpp
+Core core(0x80000000, 0x10000);        // base address, memory size
+core.load_program({...});              // copy words into imem at base
+core.write_reg(3, 0x80000000);        // pre-load register (test / loader)
+core.store_word(0x80000000, 42u);     // pre-load dmem (test / loader)
+```
+
+### Running
+
+```cpp
+core.run();               // run until EBREAK retires (no cycle limit)
+core.run(100'000);        // run until EBREAK or 100 000 cycles
+core.tick();              // single clock step; returns false when halted
+```
+
+`max_cycles` defaults to `~0ULL` (effectively unlimited). It is a hard
+cap on `Core::cycles_`, not a timeout — useful for tests and to guard
+against infinite loops when no EBREAK is present.
+
+### Inspection
+
+```cpp
+core.read_reg(1);         // register file read-back
+core.load_word(addr);     // dmem read-back
+core.pc();                // current fetch PC
+core.cycles();            // total clock cycles elapsed
+core.halted();            // true once EBREAK has retired
+```
+
+### Known Limitation — post-EBREAK pipeline drain
+
+EBREAK halts the core when it reaches the WB input (`mem_wb_`). At that
+point up to four instructions that were speculatively fetched after EBREAK
+are still in flight (MEM → EX → ID → IF). The cycle that detects EBREAK
+completes its latch phase normally, so the instruction sitting in MEM during
+that cycle will have already issued its dmem write in `mem.evaluate()`.
+
+In practice this is harmless: well-formed programs do not place meaningful
+instructions after EBREAK. A full fix would flush the pipeline when EBREAK
+reaches EX (same mechanism as branch redirect), which is not yet implemented.
 
 ---
 
@@ -108,7 +157,7 @@ The simulator supports two output modes:
 |-------|---------|--------|
 | 1 | 5-stage in-order pipeline (IF → ID → EX → MEM → WB) | Done ✅ |
 | 2 | Hazard unit — load-use stall + forwarding | Done ✅ |
-| 3 | Full pipeline integration + simulation loop | Not started |
+| 3 | Full pipeline integration + simulation loop | Done ✅ |
 | 4 | Spike diff-testing against commit trace | Not started |
 | 4b | Performance mode — `SimConfig` latency knobs + `SimStats` report | Not started |
 | 5 | L1 I-cache + D-cache (write-back, write-allocate, second-chance) | Not started |
