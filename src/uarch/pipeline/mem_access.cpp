@@ -30,23 +30,28 @@ void MemAccessStage::evaluate() {
     switch (ex.op) {
         // ── Loads ──────────────────────────────────────────────
         case Op::LW:
-            wb.wb_val = dmem_.load_word(addr);
+            wb.wb_val  = dmem_.load_word(addr);
+            wb.mem_addr = addr;
             break;
         case Op::LH:
             wb.wb_val = static_cast<uint32_t>(
                 static_cast<int32_t>(
                     static_cast<int16_t>(dmem_.load_half(addr))));
+            wb.mem_addr = addr;
             break;
         case Op::LHU:
-            wb.wb_val = dmem_.load_half(addr);
+            wb.wb_val   = dmem_.load_half(addr);
+            wb.mem_addr = addr;
             break;
         case Op::LB:
             wb.wb_val = static_cast<uint32_t>(
                 static_cast<int32_t>(
                     static_cast<int8_t>(dmem_.load_byte(addr))));
+            wb.mem_addr = addr;
             break;
         case Op::LBU:
-            wb.wb_val = dmem_.load_byte(addr);
+            wb.wb_val   = dmem_.load_byte(addr);
+            wb.mem_addr = addr;
             break;
 
         // ── Stores — record addr/val for tracer; no reg write ──
