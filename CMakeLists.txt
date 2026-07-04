@@ -97,6 +97,7 @@ gtest_discover_tests(writeback_stage_test)
 add_library(cpusim_sim STATIC
     src/sim/core.cpp
     src/sim/tracer.cpp
+    src/sim/elf_loader.cpp
 )
 target_include_directories(cpusim_sim PUBLIC include)
 target_link_libraries(cpusim_sim PUBLIC cpusim_uarch)
@@ -117,3 +118,33 @@ gtest_discover_tests(trace_test)
 add_executable(pipeline_test tests/integration/pipeline_test.cpp)
 target_link_libraries(pipeline_test PRIVATE cpusim_uarch GTest::gtest_main)
 gtest_discover_tests(pipeline_test)
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+add_executable(bench_run tools/bench_run.cpp)
+target_link_libraries(bench_run PRIVATE cpusim_sim)
+target_compile_options(bench_run PRIVATE -Wall -Wextra -Werror)
+
+# ── Benchmarks (requires riscv64-unknown-elf-gcc) ─────────────────────────────
+find_program(RISCV_GCC riscv64-unknown-elf-gcc)
+if(RISCV_GCC)
+    set(BENCH_FLAGS
+        -march=rv32i -mabi=ilp32 -O1
+        -nostdlib -nostartfiles
+        -T ${CMAKE_SOURCE_DIR}/benchmarks/link.ld
+    )
+    add_custom_command(
+        OUTPUT  ${CMAKE_BINARY_DIR}/bubble_sort.elf
+        COMMAND ${RISCV_GCC} ${BENCH_FLAGS}
+                ${CMAKE_SOURCE_DIR}/benchmarks/start.S
+                ${CMAKE_SOURCE_DIR}/benchmarks/bubble_sort.c
+                -o ${CMAKE_BINARY_DIR}/bubble_sort.elf
+        DEPENDS benchmarks/link.ld benchmarks/start.S benchmarks/bubble_sort.c
+        COMMENT "Compiling bubble_sort benchmark (RV32I)"
+    )
+    add_custom_target(benchmarks ALL
+        DEPENDS ${CMAKE_BINARY_DIR}/bubble_sort.elf
+    )
+    message(STATUS "RISC-V toolchain found: ${RISCV_GCC} — benchmarks enabled")
+else()
+    message(STATUS "riscv64-unknown-elf-gcc not found — benchmarks disabled")
+endif()

@@ -13,6 +13,7 @@
 #include "cpusim/uarch/pipeline/writeback.h"
 #include "cpusim/uarch/hazard.h"
 #include "cpusim/sim/tracer.h"
+#include "cpusim/sim/elf_loader.h"
 
 namespace cpusim {
 
@@ -36,6 +37,10 @@ public:
 
     // Copy words into imem starting at base.
     void load_program(const std::vector<uint32_t>& words);
+
+    // Load an ELF32 RV32I binary. All PT_LOAD segments go into both
+    // imem and dmem. Entry point must equal base_ (enforced).
+    void load_elf(const std::string& path);
 
     // Advance one clock cycle. Returns false if already halted.
     bool tick();

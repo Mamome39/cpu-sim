@@ -1,6 +1,8 @@
 #include "cpusim/sim/core.h"
 #include "cpusim/isa/rv32i/decoder.h"
 #include <cstdio>
+#include <stdexcept>
+#include <string>
 
 namespace cpusim {
 
@@ -16,6 +18,16 @@ Core::Core(uint32_t base, size_t mem_size)
     , wb_(rf_, mem_wb_)
     , hazard_(if_id_, id_ex_, fetch_, decode_)
 {}
+
+void Core::load_elf(const std::string& path) {
+    uint32_t entry = cpusim::load_elf(path, imem_, dmem_);
+    if (entry != base_) {
+        char msg[80];
+        std::snprintf(msg, sizeof(msg),
+            "load_elf: entry 0x%08x != base 0x%08x", entry, base_);
+        throw std::runtime_error(msg);
+    }
+}
 
 void Core::load_program(const std::vector<uint32_t>& words) {
     uint32_t addr = base_;
