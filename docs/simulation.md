@@ -81,10 +81,11 @@ core.run();
 The tracer pointer defaults to `nullptr`; tracing costs nothing when not
 attached. Attach before the first `tick()` or `run()` call.
 
-### Golden traces (`tests/traces/`)
+### Golden traces (`benchmarks/traces/`)
 
-Pre-generated golden files live in `tests/traces/`. The `trace_test`
-integration suite compares the simulator's output against these files.
+Pre-generated golden traces live in `benchmarks/traces/`. They document
+expected Tracer output for small hand-assembled micro-tests and serve as
+reference when regenerating or debugging the tracer.
 
 ---
 

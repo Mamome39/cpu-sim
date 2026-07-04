@@ -1,7 +1,7 @@
 # Implementation Notes
 
 Design decisions and tradeoffs encountered while building ELF loading,
-commit tracing, and Spike diff-testing. Written as "I did X because of Y."
+commit tracing, and Spike diff-testing. 
 
 ---
 
