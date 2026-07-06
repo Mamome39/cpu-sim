@@ -5,10 +5,12 @@
 #   tools/spike_diff.sh <elf> [build_dir]
 #
 # Requires:
-#   spike, riscv64-unknown-elf-nm, bench_run (in build_dir)
+#   spike, bench_run (in build_dir)
 #
-# Compares only instructions inside main() so startup/exit glue
-# (la sp / la t0 tohost / sw / ebreak) is excluded from the diff.
+# Both traces are filtered to the program's own memory (PC >= base)
+# to drop Spike's MROM boot preamble, and the trailing EBREAK is
+# stripped: cpu-sim commits it, but Spike exits on the tohost store
+# one instruction earlier. What remains is identical program flow.
 #
 # Exit codes:
 #   0 — traces match
@@ -21,22 +23,15 @@ ELF="${1:?usage: spike_diff.sh <elf> [build_dir]}"
 BUILD="${2:-./build}"
 BENCH_RUN="$BUILD/bench_run"
 
+# Program load base — matches Core's base_ and bench_run's -m region.
+BASE="0x80000000"
+EBREAK="(0x00100073)"   # exit instruction, present only in our trace
+
 # ── Sanity checks ────────────────────────────────────────────────────
-for cmd in spike riscv64-unknown-elf-nm; do
-    command -v "$cmd" &>/dev/null || {
-        echo "error: '$cmd' not in PATH" >&2; exit 2; }
-done
+command -v spike &>/dev/null || {
+    echo "error: 'spike' not in PATH" >&2; exit 2; }
 [ -x "$BENCH_RUN" ] || {
     echo "error: bench_run not found at '$BENCH_RUN'" >&2; exit 2; }
-
-# ── Find the PC range of main() ──────────────────────────────────────
-MAIN_PC=$(riscv64-unknown-elf-nm "$ELF" \
-    | awk '$2 == "T" && $3 == "main" {print "0x"$1}' | head -1)
-if [ -z "$MAIN_PC" ]; then
-    echo "error: cannot locate 'main' symbol in $ELF" >&2
-    exit 2
-fi
-echo "main starts at $MAIN_PC"
 
 # Portable hex->decimal conversion for awk (macOS nawk has no strtonum).
 AWK_HEX2DEC='function h2d(s,  r,i,c){
@@ -47,26 +42,27 @@ AWK_HEX2DEC='function h2d(s,  r,i,c){
     }
     return r
 }'
+# Keep program-region commits (PC >= base); drop the EBREAK line.
 AWK_FILTER="$AWK_HEX2DEC"'
-    /^core/ && h2d($4) >= h2d(pc) {print}'
+    /^core/ && h2d($4) >= h2d(base) && $0 !~ ebreak {print}'
 
 # ── Temp files ───────────────────────────────────────────────────────
 OUR_FULL=$(mktemp /tmp/cpusim_ours_full_XXXXXX.trace)
-OUR=$(mktemp /tmp/cpusim_ours_main_XXXXXX.trace)
+OUR=$(mktemp /tmp/cpusim_ours_prog_XXXXXX.trace)
 SPIKE_FULL=$(mktemp /tmp/cpusim_spike_full_XXXXXX.trace)
-SPIKE=$(mktemp /tmp/cpusim_spike_main_XXXXXX.trace)
+SPIKE=$(mktemp /tmp/cpusim_spike_prog_XXXXXX.trace)
 trap 'rm -f "$OUR_FULL" "$OUR" "$SPIKE_FULL" "$SPIKE"' EXIT
 
 # ── Our trace ────────────────────────────────────────────────────────
 "$BENCH_RUN" --trace="$OUR_FULL" "$ELF" > /dev/null
-awk -v pc="$MAIN_PC" "$AWK_FILTER" "$OUR_FULL" > "$OUR"
+awk -v base="$BASE" -v ebreak="$EBREAK" "$AWK_FILTER" "$OUR_FULL" > "$OUR"
 
 # ── Spike trace ──────────────────────────────────────────────────────
 # Spike writes commit log to stderr.
 spike --isa=rv32i -m0x80000000:0x10000 --log-commits "$ELF" \
     2>"$SPIKE_FULL" || true
 
-awk -v pc="$MAIN_PC" "$AWK_FILTER" "$SPIKE_FULL" > "$SPIKE"
+awk -v base="$BASE" -v ebreak="$EBREAK" "$AWK_FILTER" "$SPIKE_FULL" > "$SPIKE"
 
 # ── Compare ──────────────────────────────────────────────────────────
 OUR_LINES=$(wc -l < "$OUR")

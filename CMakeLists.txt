@@ -127,23 +127,48 @@ target_compile_options(bench_run PRIVATE -Wall -Wextra -Werror)
 # ── Benchmarks (requires riscv64-unknown-elf-gcc) ─────────────────────────────
 find_program(RISCV_GCC riscv64-unknown-elf-gcc)
 if(RISCV_GCC)
+    # libgcc supplies __mulsi3/__divsi3 etc. — RV32I has no hardware
+    # multiply/divide, so benchmarks using * / % link against it.
+    execute_process(
+        COMMAND ${RISCV_GCC} -march=rv32i -mabi=ilp32
+                -print-libgcc-file-name
+        OUTPUT_VARIABLE RISCV_LIBGCC
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
     set(BENCH_FLAGS
         -march=rv32i -mabi=ilp32 -O1
         -nostdlib -nostartfiles
         -T ${CMAKE_SOURCE_DIR}/benchmarks/link.ld
     )
-    add_custom_command(
-        OUTPUT  ${CMAKE_BINARY_DIR}/bubble_sort.elf
-        COMMAND ${RISCV_GCC} ${BENCH_FLAGS}
-                ${CMAKE_SOURCE_DIR}/benchmarks/start.S
-                ${CMAKE_SOURCE_DIR}/benchmarks/bubble_sort.c
-                -o ${CMAKE_BINARY_DIR}/bubble_sort.elf
-        DEPENDS benchmarks/link.ld benchmarks/start.S benchmarks/bubble_sort.c
-        COMMENT "Compiling bubble_sort benchmark (RV32I)"
+
+    # Each entry is a benchmark source in benchmarks/<name>.c, built
+    # with the shared start.S into build/<name>.elf.
+    set(BENCHMARKS
+        bubble_sort
+        fibonacci
+        crc32
+        matmul
+        sieve
     )
-    add_custom_target(benchmarks ALL
-        DEPENDS ${CMAKE_BINARY_DIR}/bubble_sort.elf
-    )
+
+    set(BENCH_ELVES "")
+    foreach(bench ${BENCHMARKS})
+        add_custom_command(
+            OUTPUT  ${CMAKE_BINARY_DIR}/${bench}.elf
+            COMMAND ${RISCV_GCC} ${BENCH_FLAGS}
+                    ${CMAKE_SOURCE_DIR}/benchmarks/start.S
+                    ${CMAKE_SOURCE_DIR}/benchmarks/${bench}.c
+                    ${RISCV_LIBGCC}
+                    -o ${CMAKE_BINARY_DIR}/${bench}.elf
+            DEPENDS benchmarks/link.ld benchmarks/start.S
+                    benchmarks/${bench}.c
+            COMMENT "Compiling ${bench} benchmark (RV32I)"
+        )
+        list(APPEND BENCH_ELVES ${CMAKE_BINARY_DIR}/${bench}.elf)
+    endforeach()
+
+    add_custom_target(benchmarks ALL DEPENDS ${BENCH_ELVES})
     message(STATUS "RISC-V toolchain found: ${RISCV_GCC} — benchmarks enabled")
 else()
     message(STATUS "riscv64-unknown-elf-gcc not found — benchmarks disabled")

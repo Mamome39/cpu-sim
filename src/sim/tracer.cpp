@@ -11,6 +11,16 @@ static bool is_load_op(Op op) {
            op == Op::LB  || op == Op::LBU;
 }
 
+// Spike prints a store's value at its access width: SB → 2 hex
+// digits, SH → 4, SW → 8. Return the hex digit count for op.
+static int store_hex_digits(Op op) {
+    switch (op) {
+        case Op::SB: return 2;
+        case Op::SH: return 4;
+        default:     return 8;  // SW
+    }
+}
+
 void Tracer::record(const pipeline::MemWb& wb) {
     if (!wb.valid) return;
 
@@ -19,9 +29,10 @@ void Tracer::record(const pipeline::MemWb& wb) {
         "core   0: 3 0x%08x (0x%08x)", wb.pc, wb.raw);
 
     if (wb.is_store) {
-        // Spike: "mem 0x<addr> 0x<val>"
+        // Spike: "mem 0x<addr> 0x<val>", value at access width.
+        int w = store_hex_digits(wb.op);
         n += std::snprintf(buf + n, sizeof(buf) - n,
-            " mem 0x%08x 0x%08x", wb.mem_addr, wb.mem_val);
+            " mem 0x%08x 0x%0*x", wb.mem_addr, w, wb.mem_val);
     } else if (wb.rd != 0) {
         // Spike: "x<N>  0x<val>" (field width 2 for the register number)
         n += std::snprintf(buf + n, sizeof(buf) - n,

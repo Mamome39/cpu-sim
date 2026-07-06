@@ -95,16 +95,26 @@ This section describes the full pipeline from C source to verified execution.
 
 ### Phase 1 — Compile
 
-Benchmarks live in `benchmarks/`. Each benchmark is compiled as a bare-metal
-RV32I ELF with no OS or standard library.
+Benchmarks live in `benchmarks/`, one C file each. Each is compiled as a
+bare-metal RV32I ELF with no OS or standard library:
+
+| Benchmark | Exercises |
+|---|---|
+| `bubble_sort` | Nested loops, signed compares, word load/store |
+| `fibonacci` | Recursion: `jal`/`jalr`, stack spills of `ra` |
+| `crc32` | Bit-ops (`srl`/`xor`/`andi`), byte loads, table lookup |
+| `matmul` | `__mulsi3` (software multiply) + dense `lw`/`sw` |
+| `sieve` | Branch-dense control flow, byte `sb`/`lbu` |
 
 ```
 riscv64-unknown-elf-gcc \
     -march=rv32i -mabi=ilp32 -O1 \
     -nostdlib -nostartfiles \
     -T benchmarks/link.ld \
-    benchmarks/start.S benchmarks/bubble_sort.c \
-    -o build/bubble_sort.elf
+    benchmarks/start.S benchmarks/<name>.c \
+    $(riscv64-unknown-elf-gcc -march=rv32i -mabi=ilp32 \
+        -print-libgcc-file-name) \
+    -o build/<name>.elf
 ```
 
 **Key constraints:**
@@ -114,6 +124,7 @@ riscv64-unknown-elf-gcc \
 | `-march=rv32i` | Restricts to the integer subset our decoder handles |
 | `-nostdlib -nostartfiles` | No libc, no crt0 — `start.S` provides the entry |
 | `-T benchmarks/link.ld` | Places `.text.init` at `0x80000000` (Core's base) |
+| `libgcc.a` | RV32I has no `mul`/`div`; supplies `__mulsi3`/`__divsi3` |
 | `start.S` | Sets sp from `_stack_top`, calls `main()`, writes `tohost`, `ebreak` |
 
 `start.S` has a two-exit strategy:
@@ -121,8 +132,9 @@ riscv64-unknown-elf-gcc \
   exits cleanly when it reads a non-zero value.
 - **cpu-sim**: `ebreak` — our Core halts when EBREAK reaches the WB stage.
 
-**CMake builds the benchmark automatically** when the RV32I toolchain is
-found:
+**CMake builds every benchmark automatically** when the RV32I toolchain is
+found. To add one, drop `benchmarks/<name>.c` and append `<name>` to the
+`BENCHMARKS` list in `CMakeLists.txt`:
 ```
 cmake --build build --target benchmarks
 ```
@@ -159,23 +171,26 @@ tools/spike_diff.sh <elf> [build_dir]
 
 The script:
 
-1. Locates `main`'s start address via `riscv64-unknown-elf-nm`.
-2. Runs `bench_run --trace=...` to collect our commit log.
-3. Runs `spike --isa=rv32i --log-commits` to collect Spike's commit log.
-4. Filters both logs to instructions at PC ≥ `main` (excludes startup/exit
-   glue so the diff is purely about the computation).
-5. `diff`s the two filtered logs and prints `PASS` or `FAIL`.
+1. Runs `bench_run --trace=...` to collect our commit log.
+2. Runs `spike --isa=rv32i --log-commits` to collect Spike's commit log.
+3. Filters both logs to program-region commits (PC ≥ `base`, dropping Spike's
+   MROM boot preamble) and strips the trailing `ebreak` — Spike exits on the
+   `tohost` store one instruction before cpu-sim commits `ebreak`.
+4. `diff`s the two filtered logs and prints `PASS` or `FAIL`.
 
-Because our Tracer uses exactly Spike's `--log-commits` format — including
-`x<N>` register names and load addresses — the diff is line-for-line with
-no post-processing.
+Filtering by `base` rather than `main` is deliberate: with `-O1` the compiler
+may place helper functions below `main`, and a `main`-relative filter would
+silently skip them (fibonacci's `fib` sits below `main`).
 
-**Example output (bubble_sort, 16 645 instructions):**
+Because our Tracer uses exactly Spike's `--log-commits` format — `x<N>`
+register names, load addresses, and access-width store values — the diff is
+line-for-line with no post-processing.
+
+**Example output (bubble_sort):**
 
 ```
-main starts at 0x80000024
-our trace:   16645 lines
-spike trace: 16645 lines
+our trace:   16652 lines
+spike trace: 16652 lines
 
 PASS — traces match
 ```
