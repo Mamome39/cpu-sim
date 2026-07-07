@@ -11,17 +11,21 @@
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::fprintf(stderr,
-            "usage: bench_run [--trace=<file>] <elf> [max_cycles]\n");
+            "usage: bench_run [--trace=<file>] [--cycles=<file>] "
+            "<elf> [max_cycles]\n");
         return 1;
     }
 
-    const char* trace_path = nullptr;
+    const char* trace_path = nullptr;   // Spike-format commit log
+    const char* cycles_path = nullptr;  // cycle-by-cycle view
     const char* elf_path   = nullptr;
     uint64_t    max_cycles = ~0ULL;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strncmp(argv[i], "--trace=", 8) == 0) {
             trace_path = argv[i] + 8;
+        } else if (std::strncmp(argv[i], "--cycles=", 9) == 0) {
+            cycles_path = argv[i] + 9;
         } else if (elf_path == nullptr) {
             elf_path = argv[i];
         } else {
@@ -41,15 +45,21 @@ int main(int argc, char* argv[]) {
         cpusim::Core core(base, mem_size);
         core.load_elf(elf_path);
 
+        // One tracer at a time; --cycles takes priority if both given.
+        using Fmt = cpusim::Tracer::Format;
+        const char* out_path = cycles_path ? cycles_path : trace_path;
+        Fmt         out_fmt  = cycles_path ? Fmt::Cycle  : Fmt::Commit;
+
         std::ofstream                   trace_out;
         std::unique_ptr<cpusim::Tracer> tracer;
-        if (trace_path) {
-            trace_out.open(trace_path);
+        if (out_path) {
+            trace_out.open(out_path);
             if (!trace_out)
                 std::fprintf(stderr,
-                    "warn: cannot open trace file '%s'\n", trace_path);
+                    "warn: cannot open trace file '%s'\n", out_path);
             else {
-                tracer = std::make_unique<cpusim::Tracer>(trace_out);
+                tracer = std::make_unique<cpusim::Tracer>(
+                    trace_out, out_fmt);
                 core.set_tracer(tracer.get());
             }
         }
