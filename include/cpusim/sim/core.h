@@ -33,7 +33,9 @@ namespace cpusim {
 
 class Core {
 public:
-    Core(uint32_t base, size_t mem_size);
+    // dmem_latency = cycles to serve a data-memory access (>= 1).
+    // 1 keeps the original single-cycle MEM behaviour.
+    Core(uint32_t base, size_t mem_size, unsigned dmem_latency = 1);
 
     // Copy words into imem starting at base.
     void load_program(const std::vector<uint32_t>& words);

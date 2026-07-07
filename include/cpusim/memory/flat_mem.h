@@ -13,7 +13,8 @@ namespace cpusim {
 
 class FlatMem : public IMemory {
 public:
-    FlatMem(uint32_t base, size_t size_bytes);
+    // latency = cycles to serve one access (>= 1). 1 = single-cycle.
+    FlatMem(uint32_t base, size_t size_bytes, unsigned latency = 1);
 
     uint32_t load_word(uint32_t addr) const override;
     uint16_t load_half(uint32_t addr) const override;
@@ -23,6 +24,10 @@ public:
     void store_half(uint32_t addr, uint16_t val) override;
     void store_byte(uint32_t addr, uint8_t  val) override;
 
+    // Timing model: a request takes `latency` cycles to serve.
+    bool ready(uint32_t addr) override;
+    void tick() override;
+
     // Write raw bytes into memory — used to load programs.
     void write_bytes(uint32_t addr,
                      const uint8_t* data, size_t len);
@@ -31,8 +36,13 @@ public:
     size_t   size() const { return mem_.size(); }
 
 private:
-    uint32_t           base_;
+    uint32_t             base_;
     std::vector<uint8_t> mem_;
+
+    // Timing state — one outstanding request (blocking, in-order).
+    unsigned latency_;
+    bool     serving_   = false;
+    int      remaining_ = 0;
 
     size_t offset(uint32_t addr) const;
 };

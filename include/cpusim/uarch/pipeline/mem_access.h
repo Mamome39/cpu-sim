@@ -8,14 +8,22 @@ namespace cpusim {
 
 // MEM stage — data memory access.
 //
-// evaluate(): for load ops, issues the load to dmem and places the
-//             result in wb_val. For store ops, issues the store and
-//             passes alu_out (address) as wb_val (unused by WB).
-//             Non-memory ops pass alu_out through unchanged.
-//             Propagates a bubble when upstream is invalid.
+// evaluate(): for a load/store, asks the memory unit whether the
+//             access is served yet (dmem_.ready). While not served it
+//             asserts stalling() and emits a bubble downstream. On the
+//             served cycle it performs the access and produces MemWb.
+//             Non-memory ops pass alu_out through in one cycle.
 //
-// latch():    commits MemWb shadow. No stall/flush inputs — hazards
-//             from loads are handled upstream by the hazard unit.
+//             The MEM stage is a thin client: it only knows served vs
+//             not-served. The latency itself lives in the memory unit,
+//             which lets a cache (fast hit / slow miss) drop in with no
+//             change here.
+//
+// latch():    advances the memory timing (dmem_.tick) and commits the
+//             MemWb shadow.
+//
+// The pipeline freeze during a stall is orchestrated by Core: it reads
+// stalling() and holds the upstream latches (IF/ID/EX) for that cycle.
 
 class MemAccessStage : public Stage {
 public:
@@ -26,10 +34,15 @@ public:
     void evaluate() override;
     void latch()    override;
 
+    // True on cycles where MEM is waiting on a not-yet-served access.
+    bool stalling() const { return stalling_; }
+
 private:
     IMemory&                      dmem_;
     const Latch<pipeline::ExMem>& in_;
     Latch<pipeline::MemWb>&       out_;
+
+    bool stalling_ = false;
 };
 
 }  // namespace cpusim

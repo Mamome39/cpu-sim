@@ -4,8 +4,9 @@
 
 namespace cpusim {
 
-FlatMem::FlatMem(uint32_t base, size_t size_bytes)
-    : base_(base), mem_(size_bytes, 0) {}
+FlatMem::FlatMem(uint32_t base, size_t size_bytes, unsigned latency)
+    : base_(base), mem_(size_bytes, 0),
+      latency_(latency ? latency : 1) {}
 
 size_t FlatMem::offset(uint32_t addr) const {
     assert(addr >= base_ && addr - base_ < mem_.size()
@@ -47,6 +48,24 @@ void FlatMem::store_word(uint32_t addr, uint32_t val) {
     mem_[o + 1] = (val >>  8) & 0xff;
     mem_[o + 2] = (val >> 16) & 0xff;
     mem_[o + 3] = (val >> 24) & 0xff;
+}
+
+// One blocking request at a time. The first ready() call starts the
+// timer (remaining = latency-1); each tick() counts it down. ready()
+// returns true once the request is served; the following tick()
+// releases it so the next access starts fresh (even to the same addr).
+bool FlatMem::ready(uint32_t /*addr*/) {
+    if (!serving_) {
+        serving_   = true;
+        remaining_ = static_cast<int>(latency_) - 1;
+    }
+    return remaining_ == 0;
+}
+
+void FlatMem::tick() {
+    if (!serving_) return;
+    if (remaining_ > 0) --remaining_;   // still waiting
+    else                serving_ = false;  // served last cycle; release
 }
 
 void FlatMem::write_bytes(uint32_t addr,

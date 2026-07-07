@@ -12,20 +12,24 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::fprintf(stderr,
             "usage: bench_run [--trace=<file>] [--cycles=<file>] "
-            "<elf> [max_cycles]\n");
+            "[--mem-latency=<n>] <elf> [max_cycles]\n");
         return 1;
     }
 
-    const char* trace_path = nullptr;   // Spike-format commit log
+    const char* trace_path  = nullptr;  // Spike-format commit log
     const char* cycles_path = nullptr;  // cycle-by-cycle view
-    const char* elf_path   = nullptr;
-    uint64_t    max_cycles = ~0ULL;
+    const char* elf_path    = nullptr;
+    uint64_t    max_cycles  = ~0ULL;
+    unsigned    mem_latency = 5;         // data-memory serve latency
 
     for (int i = 1; i < argc; ++i) {
         if (std::strncmp(argv[i], "--trace=", 8) == 0) {
             trace_path = argv[i] + 8;
         } else if (std::strncmp(argv[i], "--cycles=", 9) == 0) {
             cycles_path = argv[i] + 9;
+        } else if (std::strncmp(argv[i], "--mem-latency=", 14) == 0) {
+            mem_latency = static_cast<unsigned>(
+                std::strtoul(argv[i] + 14, nullptr, 10));
         } else if (elf_path == nullptr) {
             elf_path = argv[i];
         } else {
@@ -42,7 +46,7 @@ int main(int argc, char* argv[]) {
     constexpr size_t   mem_size = 0x10000u;    // 64 KiB
 
     try {
-        cpusim::Core core(base, mem_size);
+        cpusim::Core core(base, mem_size, mem_latency);
         core.load_elf(elf_path);
 
         // One tracer at a time; --cycles takes priority if both given.
@@ -74,6 +78,7 @@ int main(int argc, char* argv[]) {
             static_cast<double>(core.cycles()) / elapsed_s / 1e6;
 
         std::printf("elf:       %s\n",  elf_path);
+        std::printf("mem lat:   %u cycle(s)\n", mem_latency);
         std::printf("halted:    %s\n",
                     core.halted() ? "yes" : "no (cycle limit)");
         std::printf("cycles:    %llu\n",

@@ -6,10 +6,10 @@
 
 namespace cpusim {
 
-Core::Core(uint32_t base, size_t mem_size)
+Core::Core(uint32_t base, size_t mem_size, unsigned dmem_latency)
     : base_(base)
     , imem_(base, mem_size)
-    , dmem_(base, mem_size)
+    , dmem_(base, mem_size, dmem_latency)
     , fetch_(imem_, if_id_, base)
     , decode_(rf_, if_id_, id_ex_)
     , fwd_(ex_mem_, mem_wb_)
@@ -48,8 +48,26 @@ bool Core::tick() {
     wb_.evaluate();
     hazard_.evaluate();
 
+    // A memory access that is not yet served freezes the WHOLE
+    // pipeline: no instruction advances or retires this cycle, so
+    // every latch (including forwarding and WB) holds its state.
+    // Only the memory timer advances (inside mem_.latch). Freezing
+    // everything is what keeps forwarding correct — a partial freeze
+    // would let a producer drain out of the forwarding window before
+    // the frozen consumer resumes.
+    const bool mem_stall = mem_.stalling();
+
     const pipeline::MemWb& wb_in = mem_wb_.read();
-    if (tracer_) tracer_->record(wb_in, cycles_);
+    // On a stall nothing reaches WB, so the trace shows a blank cycle.
+    if (tracer_)
+        tracer_->record(mem_stall ? pipeline::MemWb{} : wb_in, cycles_);
+
+    if (mem_stall) {
+        mem_.latch();       // advance memory timer only; output held
+        ++cycles_;
+        return !halted_;
+    }
+
     // Detect EBREAK reaching WB before any latch commits.
     if (wb_in.valid && wb_in.op == rv32i::Op::EBREAK)
         halted_ = true;
