@@ -8,6 +8,14 @@ using namespace cpusim;
 static constexpr uint32_t BASE = 0x80000000u;
 static constexpr size_t   SZ   = 0x10000u;
 
+// Default single-cycle-memory config at the standard base/size.
+static SimConfig cfg() {
+    SimConfig c;
+    c.ram_base_addr  = BASE;
+    c.ram_size_bytes = SZ;
+    return c;
+}
+
 static constexpr uint32_t NOP    = 0x00000013u;  // addi x0, x0, 0
 static constexpr uint32_t EBREAK = 0x00100073u;
 
@@ -24,7 +32,7 @@ static std::string run_trace(Core& c) {
 // addi x1,x0,1 / addi x2,x0,2 / addi x3,x0,42 / 3×nop / add x4,x1,x2 /
 // 4×nop / ebreak
 TEST(Trace, BasicArith) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.load_program({
         0x00100093u,             // addi x1, x0, 1
         0x00200113u,             // addi x2, x0, 2
@@ -55,7 +63,7 @@ TEST(Trace, BasicArith) {
 // ── ForwardExToEx ────────────────────────────────────────────────────────────
 // addi x1,x0,1 immediately followed by addi x2,x1,1 (EX→EX forwarding).
 TEST(Trace, ForwardExToEx) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.load_program({
         0x00100093u,             // addi x1, x0, 1
         0x00108113u,             // addi x2, x1, 1  (uses forwarded x1)
@@ -80,7 +88,7 @@ TEST(Trace, ForwardExToEx) {
 // A load-use stall is inserted; the program-order trace is unchanged.
 // x3 = BASE (pre-written), mem[BASE] = 10.
 TEST(Trace, LoadUseStall) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.store_word(BASE, 10u);
     c.write_reg(3, BASE);
     c.load_program({
@@ -108,7 +116,7 @@ TEST(Trace, LoadUseStall) {
 // Validates mem lines for stores and reg lines for loads.
 // x1 = BASE (pre-written).
 TEST(Trace, StoreLoad) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.write_reg(1, BASE);
     c.load_program({
         0x02a00193u,             // addi x3, x0, 42

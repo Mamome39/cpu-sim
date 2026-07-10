@@ -14,6 +14,7 @@
 #include "cpusim/uarch/hazard.h"
 #include "cpusim/sim/tracer.h"
 #include "cpusim/sim/elf_loader.h"
+#include "cpusim/sim/sim_config.h"
 
 namespace cpusim {
 
@@ -33,9 +34,9 @@ namespace cpusim {
 
 class Core {
 public:
-    // dmem_latency = cycles to serve a data-memory access (>= 1).
-    // 1 keeps the original single-cycle MEM behaviour.
-    Core(uint32_t base, size_t mem_size, unsigned dmem_latency = 1);
+    // All construction parameters come from SimConfig — see
+    // sim_config.h. One argument, so new knobs never change this line.
+    explicit Core(const SimConfig& cfg);
 
     // Copy words into imem starting at base.
     void load_program(const std::vector<uint32_t>& words);

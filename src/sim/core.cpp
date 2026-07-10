@@ -6,11 +6,11 @@
 
 namespace cpusim {
 
-Core::Core(uint32_t base, size_t mem_size, unsigned dmem_latency)
-    : base_(base)
-    , imem_(base, mem_size)
-    , dmem_(base, mem_size, dmem_latency)
-    , fetch_(imem_, if_id_, base)
+Core::Core(const SimConfig& cfg)
+    : base_(cfg.ram_base_addr)
+    , imem_(cfg.ram_base_addr, cfg.ram_size_bytes)
+    , dmem_(cfg.ram_base_addr, cfg.ram_size_bytes, cfg.dmem_latency_cycles)
+    , fetch_(imem_, if_id_, cfg.ram_base_addr)
     , decode_(rf_, if_id_, id_ex_)
     , fwd_(ex_mem_, mem_wb_)
     , ex_(id_ex_, ex_mem_, fwd_, fetch_, decode_)

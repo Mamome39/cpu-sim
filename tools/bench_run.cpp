@@ -42,11 +42,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    constexpr uint32_t base     = 0x80000000u;
-    constexpr size_t   mem_size = 0x10000u;    // 64 KiB
+    cpusim::SimConfig cfg;
+    cfg.dmem_latency_cycles = mem_latency;
 
     try {
-        cpusim::Core core(base, mem_size, mem_latency);
+        cpusim::Core core(cfg);
         core.load_elf(elf_path);
 
         // One tracer at a time; --cycles takes priority if both given.

@@ -6,6 +6,14 @@ using namespace cpusim;
 static constexpr uint32_t BASE = 0x80000000u;
 static constexpr size_t   SZ   = 0x10000u;
 
+// Default single-cycle-memory config at the standard base/size.
+static SimConfig cfg() {
+    SimConfig c;
+    c.ram_base_addr  = BASE;
+    c.ram_size_bytes = SZ;
+    return c;
+}
+
 // addi x1, x0, 1    0x00100093
 // addi x2, x0, 2    0x00200113
 // addi x3, x0, 42   0x02A00193
@@ -29,7 +37,7 @@ static constexpr uint32_t LW_X5_0_X1 = 0x0000A283u;
 
 // EBREAK halts the core; no prior instructions means all regs stay 0.
 TEST(Core, EbreakHalts) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.load_program({EBREAK, NOP, NOP, NOP, NOP});
     c.run();
     EXPECT_TRUE(c.halted());
@@ -37,7 +45,7 @@ TEST(Core, EbreakHalts) {
 
 // Single addi reaches WB; EBREAK trails behind to halt cleanly.
 TEST(Core, AddiWritesReg) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.load_program({ADDI_X3_42, NOP, NOP, NOP, EBREAK, NOP, NOP, NOP, NOP});
     c.run();
     EXPECT_EQ(c.read_reg(3), 42u);
@@ -45,7 +53,7 @@ TEST(Core, AddiWritesReg) {
 
 // R-type ADD using two previously-set registers.
 TEST(Core, AddTwoRegs) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.load_program({ADDI_X1_1, ADDI_X2_2,
                     NOP, NOP, NOP,         // avoid hazard (no forwarding test)
                     ADD_X4_X1_X2,
@@ -59,7 +67,7 @@ TEST(Core, AddTwoRegs) {
 // EX->EX: addi x1,1 immediately followed by addi x2,x1,1.
 // addi x2, x1, 1 = 0x00108113
 TEST(Core, ForwardExToEx) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.load_program({ADDI_X1_1, 0x00108113u,
                     NOP, NOP, NOP, NOP, EBREAK, NOP, NOP, NOP, NOP});
     c.run();
@@ -74,7 +82,7 @@ TEST(Core, ForwardExToEx) {
 // lw x1, 0(x3) = 0x0001A083
 // addi x2, x1, 5 = 0x00508113
 TEST(Core, LoadUseStallThenForward) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.store_word(BASE, 10u);
     c.write_reg(3, BASE);
     c.load_program({0x0001A083u, 0x00508113u,
@@ -90,7 +98,7 @@ TEST(Core, LoadUseStallThenForward) {
 // x1 = BASE (store base), x3 = 42 (value)
 // sw x3, 0(x1)  then  lw x5, 0(x1)
 TEST(Core, StoreLoadRoundTrip) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.write_reg(1, BASE);
     c.load_program({ADDI_X3_42,
                     NOP, NOP, NOP,
@@ -106,7 +114,7 @@ TEST(Core, StoreLoadRoundTrip) {
 
 // max_cycles caps the run even if no EBREAK is present.
 TEST(Core, MaxCyclesCaps) {
-    Core c(BASE, SZ);
+    Core c(cfg());
     c.load_program({NOP, NOP, NOP, NOP, NOP});
     c.run(3);
     EXPECT_EQ(c.cycles(), 3u);

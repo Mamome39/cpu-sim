@@ -58,5 +58,5 @@ the order they are called.
 |------|------|
 | `core.h` | Wires all stages + memory together, drives tick loop |
 | `tracer.h` | Commit trace output for Spike diff-testing |
-| `sim_config.h` | Per-component latency config *(future)* |
+| `sim_config.h` | All tunable parameters (base, size, latencies) |
 | `sim_stats.h` | Cycle counter, IPC, stall breakdown collector *(future)* |
