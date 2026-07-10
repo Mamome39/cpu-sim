@@ -105,8 +105,8 @@ void MemAccessStage::evaluate() {
 }
 
 void MemAccessStage::latch() {
-    dmem_.tick();               // advance the memory unit's timing
-    if (!stalling_) out_.latch();  // commit only on the served cycle
+    dmem_.tick();   // advance the memory unit's timing one cycle
+    out_.latch();   // commit: bubble while stalling, result when served
 }
 
 }  // namespace cpusim

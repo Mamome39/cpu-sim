@@ -48,29 +48,31 @@ bool Core::tick() {
     wb_.evaluate();
     hazard_.evaluate();
 
-    // A memory access that is not yet served freezes the WHOLE
-    // pipeline: no instruction advances or retires this cycle, so
-    // every latch (including forwarding and WB) holds its state.
-    // Only the memory timer advances (inside mem_.latch). Freezing
-    // everything is what keeps forwarding correct — a partial freeze
-    // would let a producer drain out of the forwarding window before
-    // the frozen consumer resumes.
+    // A memory access that is not yet served stalls the pipeline. The
+    // stall propagates BACKWARD only: upstream (IF/ID/EX) freezes since
+    // MEM is occupied, while downstream (WB) drains normally — the
+    // instruction already past MEM is done and retires regardless.
     const bool mem_stall = mem_.stalling();
 
     const pipeline::MemWb& wb_in = mem_wb_.read();
-    // On a stall nothing reaches WB, so the trace shows a blank cycle.
-    if (tracer_)
-        tracer_->record(mem_stall ? pipeline::MemWb{} : wb_in, cycles_);
-
-    if (mem_stall) {
-        mem_.latch();       // advance memory timer only; output held
-        ++cycles_;
-        return !halted_;
-    }
+    if (tracer_) tracer_->record(wb_in, cycles_);
 
     // Detect EBREAK reaching WB before any latch commits.
     if (wb_in.valid && wb_in.op == rv32i::Op::EBREAK)
         halted_ = true;
+
+    if (mem_stall) {
+        // Preserve the frozen EX instruction's operands before the
+        // producers behind them drain out of the forwarding window.
+        capture_ex_operands();
+
+        wb_.latch();    // downstream drains: instruction ahead retires
+        fwd_.latch();
+        mem_.latch();   // MEM/WB gets a bubble; memory timer advances
+        // ex_/hazard_/decode_/fetch_ NOT latched → IF/ID/EX + PC hold.
+        ++cycles_;
+        return !halted_;
+    }
 
     wb_.latch();
     fwd_.latch();
@@ -82,6 +84,22 @@ bool Core::tick() {
 
     ++cycles_;
     return !halted_;
+}
+
+void Core::capture_ex_operands() {
+    // Resolve the EX instruction's operands through forwarding while the
+    // producers are still in the window (they drain this cycle), and
+    // write the values back into id_ex. On later stall cycles resolve()
+    // finds no match and falls back to these captured values, so EX
+    // reads correct operands when it finally executes. The load-use
+    // interlock guarantees this instruction never depends on the
+    // stalling load itself, so ex_mem (the load) is never a false match.
+    pipeline::IdEx held = id_ex_.read();
+    if (!held.valid) return;   // bubble in EX — nothing to preserve
+    held.rs1_val = fwd_.resolve(held.rs1, held.rs1_val);
+    held.rs2_val = fwd_.resolve(held.rs2, held.rs2_val);
+    id_ex_.write(held);
+    id_ex_.latch();
 }
 
 void Core::run(uint64_t max_cycles) {

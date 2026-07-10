@@ -68,6 +68,11 @@ public:
     void store_word(uint32_t addr, uint32_t val);
 
 private:
+    // During a memory stall, lock the frozen EX instruction's forwarded
+    // operands into id_ex so a producer draining out of the forwarding
+    // window is not lost before the stall clears.
+    void capture_ex_operands();
+
     uint32_t base_;
 
     FlatMem imem_;
