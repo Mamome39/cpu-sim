@@ -29,6 +29,7 @@ add_library(cpusim_isa STATIC
 
 add_library(cpusim_mem STATIC
     src/memory/flat_mem.cpp
+    src/memory/cache.cpp
 )
 target_include_directories(cpusim_mem PUBLIC include)
 target_compile_options(cpusim_mem PRIVATE -Wall -Wextra -Werror)
@@ -73,6 +74,10 @@ gtest_discover_tests(latch_test)
 add_executable(flat_mem_test tests/unit/flat_mem_test.cpp)
 target_link_libraries(flat_mem_test PRIVATE cpusim_mem GTest::gtest_main)
 gtest_discover_tests(flat_mem_test)
+
+add_executable(cache_test tests/unit/cache_test.cpp)
+target_link_libraries(cache_test PRIVATE cpusim_mem GTest::gtest_main)
+gtest_discover_tests(cache_test)
 
 add_executable(fetch_test tests/unit/fetch_test.cpp)
 target_link_libraries(fetch_test PRIVATE cpusim_uarch GTest::gtest_main)

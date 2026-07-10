@@ -20,9 +20,19 @@ struct SimConfig {
     size_t   ram_size_bytes = 0x10000;     // RAM size (64 KiB)
 
     // ── Memory timing ────────────────────────────────────────────
-    // Cycles for the data memory to serve one load/store. 1 = the
-    // original single-cycle MEM; larger values stall the pipeline.
+    // Cycles for the backing data memory to serve one access. 1 = the
+    // original single-cycle MEM. When the L1 cache is enabled this is
+    // the miss penalty (cost of reaching the backing store).
     unsigned dmem_latency_cycles = 1;
+
+    // ── L1 data cache (direct-mapped, timing overlay) ────────────
+    // When enabled, MEM talks to the cache instead of the backing
+    // memory directly. Data is unaffected — the cache only models
+    // hit/miss timing. sets and line_bytes must be powers of two.
+    bool     dcache_enabled            = false;
+    unsigned dcache_line_bytes         = 32;
+    unsigned dcache_sets               = 64;   // 64 x 32 B = 2 KiB
+    unsigned dcache_hit_latency_cycles = 1;
 };
 
 }  // namespace cpusim
