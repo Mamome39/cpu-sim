@@ -9,7 +9,13 @@ namespace cpusim {
 Core::Core(const SimConfig& cfg)
     : base_(cfg.ram_base_addr)
     , imem_(cfg.ram_base_addr, cfg.ram_size_bytes)
-    , dmem_(cfg.ram_base_addr, cfg.ram_size_bytes, cfg.dmem_latency_cycles)
+    , dram_(cfg.ram_base_addr, cfg.ram_size_bytes, cfg.dmem_latency_cycles)
+    , dcache_(cfg.dcache_enabled
+              ? std::make_unique<Cache>(dram_, cfg.dcache_line_bytes,
+                                        cfg.dcache_sets,
+                                        cfg.dcache_hit_latency_cycles)
+              : nullptr)
+    , dmem_(dcache_ ? static_cast<IMemory&>(*dcache_) : dram_)
     , fetch_(imem_, if_id_, cfg.ram_base_addr)
     , decode_(rf_, if_id_, id_ex_)
     , fwd_(ex_mem_, mem_wb_)

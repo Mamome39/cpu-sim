@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <vector>
 #include "cpusim/memory/flat_mem.h"
+#include "cpusim/memory/cache.h"
 #include "cpusim/regfile.h"
 #include "cpusim/uarch/latch.h"
 #include "cpusim/uarch/pipeline/pipe_regs.h"
@@ -77,7 +79,9 @@ private:
     uint32_t base_;
 
     FlatMem imem_;
-    FlatMem dmem_;
+    FlatMem dram_;                   // backing data memory (last level)
+    std::unique_ptr<Cache> dcache_;  // L1 D-cache; null unless enabled
+    IMemory& dmem_;                  // MEM's port: dcache_ or dram_
     RegFile rf_;
 
     Latch<pipeline::IfId>  if_id_;

@@ -12,7 +12,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::fprintf(stderr,
             "usage: bench_run [--trace=<file>] [--cycles=<file>] "
-            "[--mem-latency=<n>] <elf> [max_cycles]\n");
+            "[--mem-latency=<n>] [--dcache] <elf> [max_cycles]\n");
         return 1;
     }
 
@@ -21,6 +21,7 @@ int main(int argc, char* argv[]) {
     const char* elf_path    = nullptr;
     uint64_t    max_cycles  = ~0ULL;
     unsigned    mem_latency = 5;         // data-memory serve latency
+    bool        dcache      = false;     // enable the L1 D-cache
 
     for (int i = 1; i < argc; ++i) {
         if (std::strncmp(argv[i], "--trace=", 8) == 0) {
@@ -30,6 +31,8 @@ int main(int argc, char* argv[]) {
         } else if (std::strncmp(argv[i], "--mem-latency=", 14) == 0) {
             mem_latency = static_cast<unsigned>(
                 std::strtoul(argv[i] + 14, nullptr, 10));
+        } else if (std::strcmp(argv[i], "--dcache") == 0) {
+            dcache = true;
         } else if (elf_path == nullptr) {
             elf_path = argv[i];
         } else {
@@ -43,7 +46,8 @@ int main(int argc, char* argv[]) {
     }
 
     cpusim::SimConfig cfg;
-    cfg.dmem_latency_cycles = mem_latency;
+    cfg.dmem_latency_cycles = mem_latency;   // becomes the miss penalty
+    cfg.dcache_enabled      = dcache;
 
     try {
         cpusim::Core core(cfg);
@@ -78,7 +82,9 @@ int main(int argc, char* argv[]) {
             static_cast<double>(core.cycles()) / elapsed_s / 1e6;
 
         std::printf("elf:       %s\n",  elf_path);
-        std::printf("mem lat:   %u cycle(s)\n", mem_latency);
+        std::printf("mem lat:   %u cycle(s)%s\n", mem_latency,
+                    dcache ? " (miss penalty)" : "");
+        std::printf("dcache:    %s\n", dcache ? "on" : "off");
         std::printf("halted:    %s\n",
                     core.halted() ? "yes" : "no (cycle limit)");
         std::printf("cycles:    %llu\n",
