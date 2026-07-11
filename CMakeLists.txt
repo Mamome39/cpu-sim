@@ -43,6 +43,7 @@ add_library(cpusim_uarch STATIC
     src/uarch/pipeline/mem_access.cpp
     src/uarch/pipeline/writeback.cpp
     src/uarch/hazard.cpp
+    src/uarch/branch_predictor.cpp
 )
 target_include_directories(cpusim_uarch PUBLIC include)
 target_link_libraries(cpusim_uarch PUBLIC cpusim_isa cpusim_mem)
@@ -111,6 +112,10 @@ target_compile_options(cpusim_sim PRIVATE -Wall -Wextra -Werror)
 add_executable(hazard_test tests/unit/hazard_test.cpp)
 target_link_libraries(hazard_test PRIVATE cpusim_uarch GTest::gtest_main)
 gtest_discover_tests(hazard_test)
+
+add_executable(branch_predictor_test tests/unit/branch_predictor_test.cpp)
+target_link_libraries(branch_predictor_test PRIVATE cpusim_uarch GTest::gtest_main)
+gtest_discover_tests(branch_predictor_test)
 
 add_executable(core_test tests/integration/core_test.cpp)
 target_link_libraries(core_test PRIVATE cpusim_sim GTest::gtest_main)

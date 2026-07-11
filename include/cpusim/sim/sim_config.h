@@ -33,6 +33,15 @@ struct SimConfig {
     unsigned dcache_line_bytes         = 32;
     unsigned dcache_sets               = 64;   // 64 x 32 B = 2 KiB
     unsigned dcache_hit_latency_cycles = 1;
+
+    // ── Branch predictor (BTB + bimodal 2-bit) ───────────────────
+    // When enabled, IF predicts branch direction/target; a correct
+    // prediction costs no bubble, a mispredict pays the usual 2-cycle
+    // EX recovery. Off = always predict not-taken (the base behavior).
+    // Entry counts must be powers of two.
+    bool     bpred_enabled     = false;
+    unsigned bpred_bht_entries = 256;   // 2-bit direction counters
+    unsigned bpred_btb_entries = 64;    // target buffer entries
 };
 
 }  // namespace cpusim
