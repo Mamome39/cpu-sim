@@ -14,6 +14,7 @@ direct goals, and validate correctness.
 - [Architecture](docs/architecture.md) — pipeline design, two-phase clock protocol, file map
 - [Hazard Detection & Forwarding](docs/hazard-forwarding.md) — ForwardUnit, HazardUnit, load-use stall
 - [Simulation](docs/simulation.md) — Core API, Tracer, Spike diff-testing workflow
+- [Memory Model](docs/memory-model.md) — functional/timing split, ready()/tick(), cache, future revisions
 - [Implementation Notes](docs/implementation-notes.md) — design decisions and the tradeoffs behind them
 
 ---

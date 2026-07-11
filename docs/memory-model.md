@@ -1,0 +1,88 @@
+# Memory Model
+
+How the simulator models memory data and memory *timing* — and where the
+current design will need to change as the project grows.
+
+---
+
+## Functional / timing split
+
+All bytes live in exactly **one** place: the backing `FlatMem`, sized to
+the full `ram_size_bytes` and treated as DRAM (the last level). It is the
+sole authority for **data**.
+
+Every level above it — currently the L1 cache — is a **timing overlay**. It
+decides how many cycles an access costs; it never decides what value an
+access returns. `load_*` / `store_*` delegate straight to the backing store,
+so data is always correct and immediate.
+
+The payoff of this split is the correctness guarantee that has held since the
+memory-latency work: **the Spike commit-trace diff stays valid under any
+cache/latency configuration**, because the data path never changes. Turning
+the cache on or changing latencies moves only cycle counts, never values.
+
+The cost is that a **timing-model bug cannot corrupt data** — which also
+means the Spike diff cannot *catch* one. See "no timing oracle" below.
+
+---
+
+## The `ready()` / `tick()` protocol
+
+A multi-cycle memory has to live inside the pipeline's two-phase clock. Any
+`IMemory` exposes two methods for that (default: single-cycle, always ready):
+
+- **`ready(addr)`** — a query, asked in the **evaluate** (combinational)
+  phase: "is an access to `addr` done this cycle?" The first call lazily
+  *starts* the request (registers the address, begins the timer). Returns
+  `true` the cycle data is available; while `false` the caller stalls and
+  asks again next cycle.
+- **`tick()`** — the advance, called in the **latch** (sequential) phase:
+  move the internal timer/state machine forward one clock. On completion it
+  releases the port so the next request can start.
+
+It mirrors the pipeline itself — `ready()` reads state, `tick()` commits
+progress — and it **nests**: a cache is a server to the MEM stage and a
+client to its backing memory, so on a miss it drives `backing.ready()` /
+`backing.tick()`. L1 → L2 → DRAM composes with the same two calls.
+
+**One outstanding request (blocking).** The memory serves a single access at
+a time; the pipeline stalls until it completes.
+
+---
+
+## L1 data cache (current)
+
+Direct-mapped, write-allocate, **timing-only** overlay (`memory/cache.h`).
+
+- Stores only **tags** (valid + tag) — no data (data lives in the backing
+  store). See the split above.
+- **hit** → `hit_latency` cycles. **miss** → drive the backing memory to
+  fetch the line, install it, then serve at hit latency.
+- Configured via `SimConfig` `dcache_*` fields; **off by default**.
+
+v1 omissions (planned refinements, not limitations of the model):
+- **Set-associativity** — needs a replacement policy (second-chance is the
+  roadmap target). v1 is direct-mapped, so there is no victim choice.
+- **Dirty-eviction writeback penalty** — evictions are currently free in the
+  timing model.
+
+---
+
+## Known limitations → future revisions
+
+These are seams in the *model*, not bugs. Each is marked with when it must be
+revisited. None block the current single-core, in-order roadmap
+(caches → predictor → TLB).
+
+| Area | Current model | Revisit when | What changes |
+|------|---------------|--------------|--------------|
+| **Non-blocking / MSHRs** | `ready()`/`tick()` serves one blocking request | **Out-of-order execution** | The blocking two-call protocol is all an in-order core can use. Non-blocking caches (hit-under-miss, miss-under-miss, memory-level parallelism) need a **request/response interface** — `accept(Request{addr,id})` / `take_done()` — and an **MSHR** file tracking outstanding line fills and their waiters. Same-line misses coalesce into one MSHR. |
+| **Multicore coherence** | Tags-only; data lives solely in DRAM | **Multicore** | A tags-only model can't express "the freshest copy is in core 2's L1." Cache-to-cache transfer timing depends on where data is, so we'd add **per-line coherence state** (MESI) and possibly real data back into the cache. |
+| **Speculation** | Stores write the backing store immediately in MEM | **Branch speculation / OoO** | Immediate writes are safe only because in-order MEM is post-commit. A squashed speculative store must not touch memory — needs a **store queue** that holds writes until commit, then drains. |
+| **No timing oracle** | Spike diff validates data; nothing validates cycles | **Ongoing** | Because the split guarantees timing bugs never corrupt data, they are invisible to the Spike diff and show up only as wrong cycle counts. Timing correctness relies on hand-written unit tests; a reference-model cross-check (gem5-class) would be the stronger answer. |
+
+The recurring theme: the memory interface and the tags-only cache are exactly
+right for a **single-core, in-order** machine, and they get upgraded — not
+discarded — when the pipeline goes **out-of-order** and **multicore**. The
+blocking cache remains the L2/DRAM backing behavior and the baseline the
+non-blocking version is measured against.

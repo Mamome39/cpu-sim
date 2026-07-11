@@ -28,6 +28,11 @@ public:
     // The data itself is still read/written via the load/store calls
     // on the served cycle, so timing never changes values.
     //
+    // NOTE: this is a ONE-REQUEST, BLOCKING protocol — all an in-order
+    // pipeline can use. Non-blocking caches (MSHRs, hit-under-miss)
+    // will need a request/response interface instead; revisit when the
+    // core goes out-of-order. See docs/memory-model.md.
+    //
     // ready(addr): true the cycle an access to addr is served. Lazily
     //   starts the request on the first call. Default: single-cycle
     //   memory — always ready.
