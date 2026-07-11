@@ -45,7 +45,8 @@ All tests should pass. To run a specific suite:
 | 3 | Full pipeline integration + simulation loop | Done ✅ |
 | 4 | Spike diff-testing against commit trace | Done ✅ |
 | 4b | Performance mode — `SimConfig` latency knobs + `SimStats` report | Not started |
-| 5 | L1 I-cache + D-cache (write-back, write-allocate, second-chance) | Not started |
+| 5 | L1 D-cache — direct-mapped, write-allocate, timing overlay | Done ✅ |
+| 5b | L1 caches — I-cache, set-associative + second-chance, writeback penalty | Not started |
 | 6 | L2 unified cache | Not started |
 | 7 | Branch predictor | Not started |
 | 8 | TLB + virtual memory | Not started |
