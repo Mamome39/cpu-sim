@@ -3,6 +3,7 @@
 #include "cpusim/memory/mem_interface.h"
 #include "cpusim/uarch/latch.h"
 #include "cpusim/uarch/stage.h"
+#include "cpusim/uarch/branch_predictor.h"
 #include "cpusim/uarch/pipeline/pipe_regs.h"
 
 namespace cpusim {
@@ -22,9 +23,11 @@ namespace cpusim {
 
 class FetchStage : public Stage {
 public:
+    // bp may be null — then IF always predicts not-taken (base behavior).
     FetchStage(IMemory& imem,
                Latch<pipeline::IfId>& out,
-               uint32_t reset_pc = 0x80000000);
+               uint32_t reset_pc = 0x80000000,
+               BranchPredictor* bp = nullptr);
 
     void evaluate() override;
     void latch()    override;
@@ -44,6 +47,7 @@ public:
 private:
     IMemory&               imem_;
     Latch<pipeline::IfId>& out_;
+    BranchPredictor*       bp_;
 
     uint32_t pc_;
     uint32_t next_pc_   = 0;

@@ -28,6 +28,7 @@ void DecodeStage::evaluate() {
     ex.imm     = insn.imm;
     ex.rs1_val = rf_.read(insn.rs1);  // combinational reg read
     ex.rs2_val = rf_.read(insn.rs2);  // same cycle as decode
+    ex.predicted_taken = fetch.predicted_taken;  // carry to EX
     ex.valid   = true;
 
     out_.write(ex);

@@ -4,6 +4,7 @@
 #include <vector>
 #include "cpusim/memory/flat_mem.h"
 #include "cpusim/memory/cache.h"
+#include "cpusim/uarch/branch_predictor.h"
 #include "cpusim/regfile.h"
 #include "cpusim/uarch/latch.h"
 #include "cpusim/uarch/pipeline/pipe_regs.h"
@@ -62,6 +63,7 @@ public:
     uint32_t pc()     const;
     uint64_t cycles() const { return cycles_; }
     bool     halted() const { return halted_; }
+    uint64_t mispredicts() const { return ex_.mispredicts(); }
 
     // Print all 32 registers to stdout in two-column format.
     void read_regs() const;
@@ -83,6 +85,7 @@ private:
     std::unique_ptr<Cache> dcache_;  // L1 D-cache; null unless enabled
     IMemory& dmem_;                  // MEM's port: dcache_ or dram_
     RegFile rf_;
+    std::unique_ptr<BranchPredictor> bpred_;  // null unless enabled
 
     Latch<pipeline::IfId>  if_id_;
     Latch<pipeline::IdEx>  id_ex_;

@@ -6,6 +6,7 @@
 #include "cpusim/uarch/pipeline/fetch.h"
 #include "cpusim/uarch/pipeline/decode.h"
 #include "cpusim/uarch/pipeline/forward.h"
+#include "cpusim/uarch/branch_predictor.h"
 
 namespace cpusim {
 
@@ -20,14 +21,20 @@ namespace cpusim {
 
 class ExecuteStage : public Stage {
 public:
+    // bp may be null — then EX never trains and every taken control
+    // transfer is a redirect (identical to no-predictor behavior).
     ExecuteStage(const Latch<pipeline::IdEx>& in,
                  Latch<pipeline::ExMem>&      out,
                  ForwardUnit&                 fwd,
                  FetchStage&                  fetch,
-                 DecodeStage&                 decode);
+                 DecodeStage&                 decode,
+                 BranchPredictor*             bp = nullptr);
 
     void evaluate() override;
     void latch()    override;
+
+    // Control-flow redirects (mispredictions) taken so far.
+    uint64_t mispredicts() const { return mispredicts_; }
 
 private:
     const Latch<pipeline::IdEx>& in_;
@@ -35,9 +42,18 @@ private:
     ForwardUnit&                 fwd_;
     FetchStage&                  fetch_;
     DecodeStage&                 decode_;
+    BranchPredictor*             bp_;
 
-    bool     branch_taken_  = false;
-    uint32_t branch_target_ = 0;
+    // Set in evaluate(), applied in latch().
+    bool     redirect_        = false;
+    uint32_t redirect_target_ = 0;
+    bool     train_           = false;  // train predictor this instr
+    uint32_t train_pc_        = 0;
+    bool     train_cond_      = false;
+    bool     train_taken_     = false;
+    uint32_t train_target_    = 0;
+
+    uint64_t mispredicts_     = 0;
 };
 
 }  // namespace cpusim

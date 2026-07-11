@@ -12,6 +12,7 @@ struct IfId {
     uint32_t pc  = 0;
     uint32_t raw = 0;  // NOP: addi x0, x0, 0
     bool     valid = false;
+    bool     predicted_taken = false;  // branch predictor's guess
 };
 
 // ID/EX latch — decoded instruction + register values
@@ -26,6 +27,7 @@ struct IdEx {
     uint32_t      rs1_val = 0;
     uint32_t      rs2_val = 0;
     bool          valid   = false;
+    bool          predicted_taken = false;  // carried from IF
 };
 
 // EX/MEM latch — ALU result + store data

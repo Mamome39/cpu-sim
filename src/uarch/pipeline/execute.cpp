@@ -8,16 +8,29 @@ ExecuteStage::ExecuteStage(const Latch<pipeline::IdEx>& in,
                            Latch<pipeline::ExMem>&      out,
                            ForwardUnit&                 fwd,
                            FetchStage&                  fetch,
-                           DecodeStage&                 decode)
-    : in_(in), out_(out), fwd_(fwd), fetch_(fetch), decode_(decode) {}
+                           DecodeStage&                 decode,
+                           BranchPredictor*             bp)
+    : in_(in), out_(out), fwd_(fwd), fetch_(fetch), decode_(decode),
+      bp_(bp) {}
+
+static bool is_cond_branch(rv32i::Op op) {
+    switch (op) {
+        case rv32i::Op::BEQ:  case rv32i::Op::BNE:
+        case rv32i::Op::BLT:  case rv32i::Op::BGE:
+        case rv32i::Op::BLTU: case rv32i::Op::BGEU:
+            return true;
+        default:
+            return false;
+    }
+}
 
 void ExecuteStage::evaluate() {
     const pipeline::IdEx& id = in_.read();
 
     if (!id.valid) {
         out_.write(pipeline::ExMem{});
-        branch_taken_  = false;
-        branch_target_ = 0;
+        redirect_ = false;
+        train_    = false;
         return;
     }
 
@@ -45,20 +58,34 @@ void ExecuteStage::evaluate() {
 
     uint32_t alu_out = alu_exec(aop, a, b);
 
-    branch_taken_  = branch_taken(id.op, rs1, rs2);
-    branch_target_ = id.pc + static_cast<uint32_t>(id.imm);
+    bool     cond        = is_cond_branch(id.op);
+    bool     actual_taken = branch_taken(id.op, rs1, rs2);
+    uint32_t target       = id.pc + static_cast<uint32_t>(id.imm);
 
-    // JAL/JALR write pc+4 as the return address.
-    bool is_jump = (id.op == rv32i::Op::JAL ||
-                    id.op == rv32i::Op::JALR);
-    if (is_jump) {
-        alu_out       = id.pc + 4;
-        branch_taken_ = true;
-        // JALR target: (forwarded rs1 + imm) & ~1
-        if (id.op == rv32i::Op::JALR)
-            branch_target_ = (rs1 +
-                               static_cast<uint32_t>(id.imm)) & ~1u;
+    // JAL/JALR write pc+4 as the return address and always jump.
+    bool is_jal  = (id.op == rv32i::Op::JAL);
+    bool is_jalr = (id.op == rv32i::Op::JALR);
+    if (is_jal || is_jalr) {
+        alu_out      = id.pc + 4;
+        actual_taken = true;
+        if (is_jalr)   // target from forwarded rs1, not deterministic
+            target = (rs1 + static_cast<uint32_t>(id.imm)) & ~1u;
     }
+
+    // Misprediction: the path IF fetched (predicted) differs from the
+    // real outcome. Predicted-taken instructions have deterministic
+    // targets (cond branch / JAL), so a matching direction means a
+    // matching target — comparing direction is enough. Redirect to the
+    // real next PC on a mismatch.
+    redirect_        = (actual_taken != id.predicted_taken);
+    redirect_target_ = actual_taken ? target : (id.pc + 4);
+
+    // Train the predictor only on deterministic-target control ops.
+    train_        = bp_ && (cond || is_jal);
+    train_pc_     = id.pc;
+    train_cond_   = cond;
+    train_taken_  = actual_taken;
+    train_target_ = target;
 
     pipeline::ExMem ex;
     ex.pc            = id.pc;
@@ -67,21 +94,24 @@ void ExecuteStage::evaluate() {
     ex.rd            = id.rd;
     ex.alu_out       = alu_out;
     ex.rs2_val       = rs2;   // forwarded store data
-    ex.branch_taken  = branch_taken_;
-    ex.branch_target = branch_target_;
+    ex.branch_taken  = actual_taken;
+    ex.branch_target = target;
     ex.valid         = true;
 
     out_.write(ex);
 }
 
 void ExecuteStage::latch() {
-    if (branch_taken_) {
-        fetch_.set_redirect(true, branch_target_);
+    if (redirect_) {
+        fetch_.set_redirect(true, redirect_target_);
         decode_.set_flush(true);
+        ++mispredicts_;
     }
+    if (train_)
+        bp_->update(train_pc_, train_cond_, train_taken_, train_target_);
     out_.latch();
-    branch_taken_  = false;
-    branch_target_ = 0;
+    redirect_ = false;
+    train_    = false;
 }
 
 }  // namespace cpusim
