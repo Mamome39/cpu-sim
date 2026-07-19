@@ -15,6 +15,7 @@ direct goals, and validate correctness.
 - [Hazard Detection & Forwarding](docs/hazard-forwarding.md) — ForwardUnit, HazardUnit, load-use stall
 - [Simulation](docs/simulation.md) — Core API, Tracer, Spike diff-testing workflow
 - [Memory Model](docs/memory-model.md) — functional/timing split, ready()/tick(), cache, future revisions
+- [Branch Prediction](docs/branch-prediction.md) — BTB + bimodal, and the gshare upgrade path
 - [Implementation Notes](docs/implementation-notes.md) — design decisions and the tradeoffs behind them
 - [Performance Report](report.md) — cycles/IPC per memory configuration
 
