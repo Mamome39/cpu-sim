@@ -13,7 +13,10 @@ namespace cpusim {
 //
 // Grows as features land (cache hits/misses, stall causes, ...).
 struct SimStats {
-    uint64_t branch_mispredicts = 0;
+    // Control-flow predictions, counted at EX. The two sum to the total
+    // dynamic branch/jump count, so accuracy = correct / (correct+mispr).
+    uint64_t branch_correct     = 0;   // resolved == predicted
+    uint64_t branch_mispredicts = 0;   // resolved != predicted
 };
 
 }  // namespace cpusim

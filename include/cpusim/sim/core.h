@@ -65,6 +65,7 @@ public:
     uint64_t cycles() const { return cycles_; }
     bool     halted() const { return halted_; }
     uint64_t mispredicts() const { return stats_.branch_mispredicts; }
+    const SimStats& stats() const { return stats_; }
 
     // Print all 32 registers to stdout in two-column format.
     void read_regs() const;

@@ -32,6 +32,7 @@ void ExecuteStage::evaluate() {
         out_.write(pipeline::ExMem{});
         redirect_ = false;
         train_    = false;
+        control_  = false;
         return;
     }
 
@@ -81,6 +82,8 @@ void ExecuteStage::evaluate() {
     redirect_        = (actual_taken != id.predicted_taken);
     redirect_target_ = actual_taken ? target : (id.pc + 4);
 
+    control_ = cond || is_jal || is_jalr;   // for the stats probe
+
     // Train the predictor only on deterministic-target control ops.
     train_        = bp_ && (cond || is_jal);
     train_pc_     = id.pc;
@@ -106,13 +109,19 @@ void ExecuteStage::latch() {
     if (redirect_) {
         fetch_.set_redirect(true, redirect_target_);
         decode_.set_flush(true);
-        if (stats_) ++stats_->branch_mispredicts;   // probe at resolve
+    }
+    // Probe branch outcomes at resolve — control-flow only, so correct
+    // and mispredict sum to the dynamic branch count.
+    if (stats_ && control_) {
+        if (redirect_) ++stats_->branch_mispredicts;
+        else           ++stats_->branch_correct;
     }
     if (train_)
         bp_->update(train_pc_, train_cond_, train_taken_, train_target_);
     out_.latch();
     redirect_ = false;
     train_    = false;
+    control_  = false;
 }
 
 }  // namespace cpusim

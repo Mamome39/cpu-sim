@@ -91,8 +91,16 @@ int main(int argc, char* argv[]) {
                     dcache ? " (miss penalty)" : "");
         std::printf("dcache:    %s\n", dcache ? "on" : "off");
         std::printf("bpred:     %s\n", bpred ? "on" : "off");
-        std::printf("mispred:   %llu\n",
-                    static_cast<unsigned long long>(core.mispredicts()));
+        const cpusim::SimStats& s = core.stats();
+        unsigned long long correct = s.branch_correct;
+        unsigned long long mispred = s.branch_mispredicts;
+        unsigned long long total   = correct + mispred;
+        std::printf("branches:  %llu\n", total);
+        std::printf("correct:   %llu\n", correct);
+        std::printf("mispred:   %llu\n", mispred);
+        if (total)
+            std::printf("accuracy:  %.2f%%\n",
+                        100.0 * static_cast<double>(correct) / total);
         std::printf("halted:    %s\n",
                     core.halted() ? "yes" : "no (cycle limit)");
         std::printf("cycles:    %llu\n",

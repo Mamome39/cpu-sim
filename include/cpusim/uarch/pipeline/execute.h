@@ -48,6 +48,7 @@ private:
     // Set in evaluate(), applied in latch().
     bool     redirect_        = false;
     uint32_t redirect_target_ = 0;
+    bool     control_         = false;  // branch/jump (for stats)
     bool     train_           = false;  // train predictor this instr
     uint32_t train_pc_        = 0;
     bool     train_cond_      = false;
