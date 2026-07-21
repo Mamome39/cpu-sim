@@ -79,12 +79,13 @@ outcomes of the last *H* branches, not just the branch's PC.
 
 ### Testing
 
-- Same **trace-replay cross-check** as bimodal: replay the branch trace
-  through a reference gshare with matching *H* / PHT size / GHR-update
-  policy; our mispredict count must match exactly (deterministic given the
-  trace and config).
-- A selectable `bpred_kind` lets us diff bimodal vs gshare mispredict rates
-  on the benchmarks directly.
+- Mispredicts are recorded by the **`SimStats` probe** at EX resolution
+  (`bench_run` prints `mispred:`), so a selectable `bpred_kind` lets us
+  diff bimodal vs gshare mispredict counts on the benchmarks directly.
+- The count is an EX-resolve metric, so it includes one speculative jump
+  the retirement stream never sees — the `j` guard right after EBREAK in
+  start.S resolves in EX but the halt lands at WB first. Harmless and
+  constant (+1 per run).
 
 ### Expectation on our workloads
 

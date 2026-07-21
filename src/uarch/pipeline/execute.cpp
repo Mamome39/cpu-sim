@@ -9,9 +9,10 @@ ExecuteStage::ExecuteStage(const Latch<pipeline::IdEx>& in,
                            ForwardUnit&                 fwd,
                            FetchStage&                  fetch,
                            DecodeStage&                 decode,
-                           BranchPredictor*             bp)
+                           BranchPredictor*             bp,
+                           SimStats*                    stats)
     : in_(in), out_(out), fwd_(fwd), fetch_(fetch), decode_(decode),
-      bp_(bp) {}
+      bp_(bp), stats_(stats) {}
 
 static bool is_cond_branch(rv32i::Op op) {
     switch (op) {
@@ -105,7 +106,7 @@ void ExecuteStage::latch() {
     if (redirect_) {
         fetch_.set_redirect(true, redirect_target_);
         decode_.set_flush(true);
-        ++mispredicts_;
+        if (stats_) ++stats_->branch_mispredicts;   // probe at resolve
     }
     if (train_)
         bp_->update(train_pc_, train_cond_, train_taken_, train_target_);

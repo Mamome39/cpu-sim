@@ -18,6 +18,7 @@
 #include "cpusim/sim/tracer.h"
 #include "cpusim/sim/elf_loader.h"
 #include "cpusim/sim/sim_config.h"
+#include "cpusim/sim/sim_stats.h"
 
 namespace cpusim {
 
@@ -63,7 +64,7 @@ public:
     uint32_t pc()     const;
     uint64_t cycles() const { return cycles_; }
     bool     halted() const { return halted_; }
-    uint64_t mispredicts() const { return ex_.mispredicts(); }
+    uint64_t mispredicts() const { return stats_.branch_mispredicts; }
 
     // Print all 32 registers to stdout in two-column format.
     void read_regs() const;
@@ -86,6 +87,7 @@ private:
     IMemory& dmem_;                  // MEM's port: dcache_ or dram_
     RegFile rf_;
     std::unique_ptr<BranchPredictor> bpred_;  // null unless enabled
+    SimStats stats_;                          // probed by the pipeline
 
     Latch<pipeline::IfId>  if_id_;
     Latch<pipeline::IdEx>  id_ex_;
