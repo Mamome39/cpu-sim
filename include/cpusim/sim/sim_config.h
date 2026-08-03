@@ -33,6 +33,7 @@ struct SimConfig {
     unsigned dcache_line_bytes         = 32;
     unsigned dcache_sets               = 64;   // 64 x 32 B = 2 KiB
     unsigned dcache_hit_latency_cycles = 1;
+    unsigned dcache_ways               = 1;    // 1 = direct-mapped. Pow2.
 
     // ── Branch predictor (BTB + bimodal 2-bit) ───────────────────
     // When enabled, IF predicts branch direction/target; a correct

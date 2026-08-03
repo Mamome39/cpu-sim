@@ -13,7 +13,8 @@ Core::Core(const SimConfig& cfg)
     , dcache_(cfg.dcache_enabled
               ? std::make_unique<Cache>(dram_, cfg.dcache_line_bytes,
                                         cfg.dcache_sets,
-                                        cfg.dcache_hit_latency_cycles)
+                                        cfg.dcache_hit_latency_cycles,
+                                        cfg.dcache_ways)
               : nullptr)
     , dmem_(dcache_ ? static_cast<IMemory&>(*dcache_) : dram_)
     , bpred_(cfg.bpred_enabled

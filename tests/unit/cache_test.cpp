@@ -69,6 +69,59 @@ TEST(Cache, DistinctSetsDoNotConflict) {
     EXPECT_EQ(access_cycles(c, A + LINE), HIT_LAT);             // still cached
 }
 
+// ── Set-associativity + PLRU ──────────────────────────────────────────
+
+// Two-way: A and B collide in one set but coexist in two ways, so the
+// direct-mapped conflict (see DirectMappedConflictEvicts) disappears.
+TEST(Cache, TwoWayKeepsBothConflictingLines) {
+    FlatMem dram(BASE, SZ, DRAM_LAT);
+    Cache   c(dram, LINE, SETS, HIT_LAT, /*ways=*/2);
+
+    EXPECT_EQ(access_cycles(c, A), DRAM_LAT + HIT_LAT);  // miss, way 0
+    EXPECT_EQ(access_cycles(c, B), DRAM_LAT + HIT_LAT);  // miss, way 1
+    EXPECT_EQ(access_cycles(c, A), HIT_LAT);             // both resident
+    EXPECT_EQ(access_cycles(c, B), HIT_LAT);
+}
+
+// A cold set fills its invalid ways first — no eviction until full.
+TEST(Cache, FirstInvalidWayFillsBeforeEviction) {
+    FlatMem dram(BASE, SZ, DRAM_LAT);
+    Cache   c(dram, LINE, SETS, HIT_LAT, /*ways=*/4);
+
+    // Four distinct tags in the same set (stride = SETS*LINE = 0x40).
+    const uint32_t stride = SETS * LINE;
+    for (int i = 0; i < 4; ++i)
+        EXPECT_EQ(access_cycles(c, A + i * stride), DRAM_LAT + HIT_LAT);
+    // All four still resident — set was filled, nothing evicted.
+    for (int i = 0; i < 4; ++i)
+        EXPECT_EQ(access_cycles(c, A + i * stride), HIT_LAT);
+}
+
+// Tree-PLRU evicts the least-recently-used way. Fill w0..w3, then touch
+// them so w0 is LRU; the fifth distinct tag must evict exactly w0's tag.
+TEST(Cache, PlruEvictsLeastRecentlyUsed) {
+    FlatMem dram(BASE, SZ, DRAM_LAT);
+    Cache   c(dram, LINE, SETS, HIT_LAT, /*ways=*/4);
+
+    const uint32_t stride = SETS * LINE;
+    const uint32_t w0 = A, w1 = A + stride, w2 = A + 2*stride,
+                   w3 = A + 3*stride, w4 = A + 4*stride;
+
+    for (uint32_t a : {w0, w1, w2, w3})      // fill order w0,w1,w2,w3
+        EXPECT_EQ(access_cycles(c, a), DRAM_LAT + HIT_LAT);
+
+    // Re-touch w1,w2,w3 so w0 becomes the pseudo-LRU (oldest) way.
+    for (uint32_t a : {w1, w2, w3})
+        EXPECT_EQ(access_cycles(c, a), HIT_LAT);
+
+    // A fifth tag evicts the LRU way (w0's slot) and leaves w1..w3 intact.
+    EXPECT_EQ(access_cycles(c, w4), DRAM_LAT + HIT_LAT);  // evicts w0
+    EXPECT_EQ(access_cycles(c, w1), HIT_LAT);             // still resident
+    EXPECT_EQ(access_cycles(c, w2), HIT_LAT);
+    EXPECT_EQ(access_cycles(c, w3), HIT_LAT);
+    EXPECT_EQ(access_cycles(c, w0), DRAM_LAT + HIT_LAT);  // w0 was evicted
+}
+
 // ── Data path (delegation) ────────────────────────────────────────────
 
 TEST(Cache, DataDelegatesToBacking) {

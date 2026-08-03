@@ -12,7 +12,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::fprintf(stderr,
             "usage: bench_run [--trace=<file>] [--cycles=<file>] "
-            "[--mem-latency=<n>] [--dcache] [--bpred] "
+            "[--mem-latency=<n>] [--dcache] [--dcache-ways=<n>] [--bpred] "
             "<elf> [max_cycles]\n");
         return 1;
     }
@@ -23,6 +23,7 @@ int main(int argc, char* argv[]) {
     uint64_t    max_cycles  = ~0ULL;
     unsigned    mem_latency = 5;         // data-memory serve latency
     bool        dcache      = false;     // enable the L1 D-cache
+    unsigned    dcache_ways = 1;         // D-cache associativity
     bool        bpred       = false;     // enable the branch predictor
 
     for (int i = 1; i < argc; ++i) {
@@ -35,6 +36,9 @@ int main(int argc, char* argv[]) {
                 std::strtoul(argv[i] + 14, nullptr, 10));
         } else if (std::strcmp(argv[i], "--dcache") == 0) {
             dcache = true;
+        } else if (std::strncmp(argv[i], "--dcache-ways=", 14) == 0) {
+            dcache_ways = static_cast<unsigned>(
+                std::strtoul(argv[i] + 14, nullptr, 10));
         } else if (std::strcmp(argv[i], "--bpred") == 0) {
             bpred = true;
         } else if (elf_path == nullptr) {
@@ -52,6 +56,7 @@ int main(int argc, char* argv[]) {
     cpusim::SimConfig cfg;
     cfg.dmem_latency_cycles = mem_latency;   // becomes the miss penalty
     cfg.dcache_enabled      = dcache;
+    cfg.dcache_ways         = dcache_ways;
     cfg.bpred_enabled       = bpred;
 
     try {
@@ -89,7 +94,9 @@ int main(int argc, char* argv[]) {
         std::printf("elf:       %s\n",  elf_path);
         std::printf("mem lat:   %u cycle(s)%s\n", mem_latency,
                     dcache ? " (miss penalty)" : "");
-        std::printf("dcache:    %s\n", dcache ? "on" : "off");
+        std::printf("dcache:    %s", dcache ? "on" : "off");
+        if (dcache) std::printf(" (%u-way)", dcache_ways);
+        std::printf("\n");
         std::printf("bpred:     %s\n", bpred ? "on" : "off");
         const cpusim::SimStats& s = core.stats();
         unsigned long long correct = s.branch_correct;

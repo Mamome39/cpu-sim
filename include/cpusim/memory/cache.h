@@ -1,12 +1,14 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 #include "cpusim/memory/mem_interface.h"
+#include "cpusim/memory/eviction_policy.h"
 
 namespace cpusim {
 
-// Cache — a direct-mapped, timing-only L1 overlay over a backing
+// Cache — a set-associative, timing-only L1 overlay over a backing
 // IMemory (e.g. FlatMem as "DRAM", or a lower cache level).
 //
 // Data is never stored here: load_*/store_* delegate to the backing
@@ -20,15 +22,21 @@ namespace cpusim {
 //                matching the in-order MEM stage.
 //   tick():      advances the timing model (and the backing on a miss).
 //
-// v1 limitations: direct-mapped (no replacement policy) and no dirty-
-// eviction writeback penalty. Both are planned refinements.
+// Organization: `sets` sets of `ways` lines each (ways == 1 is plain
+// direct-mapped). On a miss the victim is the first invalid way, else
+// the tree-Pseudo-LRU victim (ways-1 bits per set).
+//
+// v1 limitation: no dirty-eviction writeback penalty yet (evictions are
+// free in the timing model). That is the next refinement.
 class Cache : public IMemory {
 public:
-    // line_bytes and sets must be powers of two.
+    // line_bytes, sets, and ways must be powers of two. ways defaults to
+    // 1 (direct-mapped) so existing call sites are unaffected.
     Cache(IMemory& backing,
           unsigned line_bytes,
           unsigned sets,
-          unsigned hit_latency);
+          unsigned hit_latency,
+          unsigned ways = 1);
 
     // Data path — delegated to the backing memory (always correct).
     uint32_t load_word(uint32_t addr) const override;
@@ -48,9 +56,24 @@ public:
 private:
     enum class Phase { Idle, HitWait, MissFetch };
 
+    // One cache line's tag state (no data — see the class comment).
+    struct Line {
+        bool     valid = false;
+        bool     dirty = false;   // reserved for write-back (Step 2)
+        uint32_t tag   = 0;
+    };
+
     uint32_t index_of(uint32_t addr) const;
     uint32_t tag_of(uint32_t addr)   const;
-    bool     is_hit(uint32_t addr)   const;
+
+    // Return the way holding addr in its set, or -1 on a miss.
+    int  find_way(uint32_t addr) const;
+    // Pick the way to install into: first invalid, else the policy's
+    // victim (only consulted once the set is full).
+    unsigned choose_victim(uint32_t set) const;
+
+    Line&       line_at(uint32_t set, unsigned way);
+    const Line& line_at(uint32_t set, unsigned way) const;
 
     IMemory& backing_;
 
@@ -58,9 +81,10 @@ private:
     unsigned index_bits_;    // log2(sets)
     uint32_t index_mask_;    // sets - 1
     unsigned hit_latency_;
+    unsigned ways_;
 
-    std::vector<bool>     valid_;
-    std::vector<uint32_t> tag_;
+    std::vector<Line> lines_;      // sets * ways, row-major by set
+    std::unique_ptr<EvictionPolicy> repl_;   // replacement policy
 
     // Timing state — one outstanding request.
     Phase    phase_        = Phase::Idle;
