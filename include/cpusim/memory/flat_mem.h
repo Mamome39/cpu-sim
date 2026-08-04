@@ -25,7 +25,8 @@ public:
     void store_byte(uint32_t addr, uint8_t  val) override;
 
     // Timing model: a request takes `latency` cycles to serve.
-    bool ready(uint32_t addr) override;
+    // is_write is ignored — flat memory has no dirty state.
+    bool ready(uint32_t addr, bool is_write) override;
     void tick() override;
 
     // Write raw bytes into memory — used to load programs.

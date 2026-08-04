@@ -33,11 +33,16 @@ public:
     // will need a request/response interface instead; revisit when the
     // core goes out-of-order. See docs/memory-model.md.
     //
-    // ready(addr): true the cycle an access to addr is served. Lazily
-    //   starts the request on the first call. Default: single-cycle
+    // ready(addr, is_write): true the cycle an access to addr is served.
+    //   Lazily starts the request on the first call. is_write marks the
+    //   access as a store so a write-back cache can dirty the line (and
+    //   charge a writeback when a dirty victim is later evicted); levels
+    //   that don't model dirtiness ignore it. Default: single-cycle
     //   memory — always ready.
     // tick(): advance the timing model one cycle. Default: no-op.
-    virtual bool ready(uint32_t /*addr*/) { return true; }
+    virtual bool ready(uint32_t /*addr*/, bool /*is_write*/ = false) {
+        return true;
+    }
     virtual void tick() {}
 };
 

@@ -10,14 +10,20 @@ MemAccessStage::MemAccessStage(IMemory&                      dmem,
                                Latch<pipeline::MemWb>&       out)
     : dmem_(dmem), in_(in), out_(out) {}
 
+static bool is_store(Op op) {
+    switch (op) {
+        case Op::SB: case Op::SH: case Op::SW: return true;
+        default:                               return false;
+    }
+}
+
 static bool is_mem_op(Op op) {
     switch (op) {
         case Op::LB:  case Op::LH:  case Op::LW:
         case Op::LBU: case Op::LHU:
-        case Op::SB:  case Op::SH:  case Op::SW:
             return true;
         default:
-            return false;
+            return is_store(op);
     }
 }
 
@@ -33,7 +39,7 @@ void MemAccessStage::evaluate() {
     // Ask the memory unit whether this access is served yet. While it
     // is not, stall and emit a bubble; the access runs once, below, on
     // the served cycle — so data is never affected by timing.
-    if (is_mem_op(ex.op) && !dmem_.ready(ex.alu_out)) {
+    if (is_mem_op(ex.op) && !dmem_.ready(ex.alu_out, is_store(ex.op))) {
         stalling_ = true;
         out_.write(pipeline::MemWb{});  // bubble while waiting
         return;

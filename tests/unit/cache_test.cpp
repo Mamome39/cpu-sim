@@ -21,6 +21,14 @@ static int access_cycles(IMemory& m, uint32_t addr) {
     return c;
 }
 
+// Drive one blocking STORE to completion; return cycles it occupied.
+static int store_cycles(IMemory& m, uint32_t addr) {
+    int c = 1;
+    while (!m.ready(addr, /*is_write=*/true)) { m.tick(); ++c; }
+    m.tick();   // release the port for the next request
+    return c;
+}
+
 // Two addresses 64 B apart (SETS*LINE) collide in the same set.
 static constexpr uint32_t A = BASE;          // index 0
 static constexpr uint32_t B = BASE + 0x40;   // index 0, different tag
@@ -120,6 +128,42 @@ TEST(Cache, PlruEvictsLeastRecentlyUsed) {
     EXPECT_EQ(access_cycles(c, w2), HIT_LAT);
     EXPECT_EQ(access_cycles(c, w3), HIT_LAT);
     EXPECT_EQ(access_cycles(c, w0), DRAM_LAT + HIT_LAT);  // w0 was evicted
+}
+
+// ── Write-back ────────────────────────────────────────────────────────
+
+// A store that hits is served at hit latency (no backing traffic); the
+// line simply becomes dirty. A following access still hits.
+TEST(Cache, StoreHitServesAtHitLatency) {
+    FlatMem dram(BASE, SZ, DRAM_LAT);
+    Cache   c(dram, LINE, SETS, HIT_LAT, /*ways=*/1);
+
+    EXPECT_EQ(access_cycles(c, A), DRAM_LAT + HIT_LAT);  // load miss (clean)
+    EXPECT_EQ(store_cycles(c, A),  HIT_LAT);             // store hit
+    EXPECT_EQ(access_cycles(c, A), HIT_LAT);             // still resident
+}
+
+// Evicting a CLEAN victim costs a plain miss; evicting a DIRTY victim
+// costs an extra writeback (flush + fetch + hit).
+TEST(Cache, DirtyEvictionPaysWriteback) {
+    FlatMem dram(BASE, SZ, DRAM_LAT);
+    Cache   c(dram, LINE, SETS, HIT_LAT, /*ways=*/1);
+
+    EXPECT_EQ(access_cycles(c, A), DRAM_LAT + HIT_LAT);  // A clean
+    EXPECT_EQ(access_cycles(c, B), DRAM_LAT + HIT_LAT);  // evict clean A
+    EXPECT_EQ(access_cycles(c, A), DRAM_LAT + HIT_LAT);  // evict clean B
+    EXPECT_EQ(store_cycles(c, A),  HIT_LAT);             // dirty A
+    EXPECT_EQ(access_cycles(c, B), 2 * DRAM_LAT + HIT_LAT);  // flush dirty A
+}
+
+// A store miss is write-allocate and installs the line DIRTY, so the
+// next eviction of that line pays the writeback.
+TEST(Cache, StoreMissInstallsDirty) {
+    FlatMem dram(BASE, SZ, DRAM_LAT);
+    Cache   c(dram, LINE, SETS, HIT_LAT, /*ways=*/1);
+
+    EXPECT_EQ(store_cycles(c, A),  DRAM_LAT + HIT_LAT);      // write-allocate
+    EXPECT_EQ(access_cycles(c, B), 2 * DRAM_LAT + HIT_LAT);  // A was dirty
 }
 
 // ── Data path (delegation) ────────────────────────────────────────────

@@ -54,7 +54,7 @@ void FlatMem::store_word(uint32_t addr, uint32_t val) {
 // timer (remaining = latency-1); each tick() counts it down. ready()
 // returns true once the request is served; the following tick()
 // releases it so the next access starts fresh (even to the same addr).
-bool FlatMem::ready(uint32_t /*addr*/) {
+bool FlatMem::ready(uint32_t /*addr*/, bool /*is_write*/) {
     if (!serving_) {
         serving_   = true;
         remaining_ = static_cast<int>(latency_) - 1;

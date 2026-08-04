@@ -26,8 +26,11 @@ namespace cpusim {
 // direct-mapped). On a miss the victim is the first invalid way, else
 // the tree-Pseudo-LRU victim (ways-1 bits per set).
 //
-// v1 limitation: no dirty-eviction writeback penalty yet (evictions are
-// free in the timing model). That is the next refinement.
+// Write-back: a store is served at hit latency and only marks its line
+// dirty (no backing traffic per store). The writeback cost is paid later,
+// when a dirty line is evicted — the miss first drives the backing to
+// flush the victim, then fetches the new line. Data still lives in the
+// backing (Option A), so the flush is timing-only but honestly charged.
 class Cache : public IMemory {
 public:
     // line_bytes, sets, and ways must be powers of two. ways defaults to
@@ -47,14 +50,14 @@ public:
     void store_byte(uint32_t addr, uint8_t  val) override;
 
     // Timing path.
-    bool ready(uint32_t addr) override;
+    bool ready(uint32_t addr, bool is_write) override;
     void tick() override;
 
     // Inspection (for tests): was the current/last request a hit?
     bool last_was_hit() const { return last_hit_; }
 
 private:
-    enum class Phase { Idle, HitWait, MissFetch };
+    enum class Phase { Idle, HitWait, WriteBack, MissFetch };
 
     // One cache line's tag state (no data — see the class comment).
     struct Line {
@@ -86,11 +89,17 @@ private:
     std::vector<Line> lines_;      // sets * ways, row-major by set
     std::unique_ptr<EvictionPolicy> repl_;   // replacement policy
 
+    // Address of the line resident in (set, way) — for victim writeback.
+    uint32_t addr_of(uint32_t set, uint32_t tag) const;
+
     // Timing state — one outstanding request.
-    Phase    phase_        = Phase::Idle;
-    uint32_t cur_addr_     = 0;
+    Phase    phase_         = Phase::Idle;
+    uint32_t cur_addr_      = 0;
+    bool     cur_is_write_  = false;   // is the current access a store?
+    unsigned victim_way_    = 0;       // way chosen at miss start
+    uint32_t wb_addr_       = 0;       // dirty victim's address to flush
     int      hit_remaining_ = 0;
-    bool     last_hit_     = false;
+    bool     last_hit_      = false;
 };
 
 }  // namespace cpusim
