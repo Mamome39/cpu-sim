@@ -5,8 +5,10 @@ branch-prediction configurations. Every configuration produces
 **byte-identical committed results** (the Spike diff holds), so only
 cycle counts move — this is a pure timing study.
 
-Two independent levers attack two different cycle sources:
-- the **L1 cache** removes memory-stall cycles (miss penalty),
+Three independent levers attack three different cycle sources:
+- the **L1 D-cache** removes data memory-stall cycles (miss penalty),
+- the **L1 I-cache** removes instruction-fetch-stall cycles (same idea,
+  applied to the front end),
 - the **branch predictor** removes branch-flush cycles (each
   misprediction is a 2-cycle flush in this pipeline).
 
@@ -21,11 +23,16 @@ commit-trace lines. Reproduce steps are at the bottom.
 |------|-------|---------|
 | **ideal** | `--mem-latency=1` | Single-cycle memory — the pipeline floor. |
 | **slow** | `--mem-latency=5` | 5-cycle memory, no cache. |
-| **cache** | `--mem-latency=5 --dcache` | Slow memory behind the L1 cache (5 = miss penalty). |
+| **cache** | `--mem-latency=5 --dcache` | Slow memory behind the L1 D-cache (5 = miss penalty). |
+| **islow** | `--imem-latency=5` | 5-cycle instruction memory, no I-cache. |
+| **icache** | `--imem-latency=5 --icache` | Slow instruction memory behind the L1 I-cache. |
 | **bpred** | `... --bpred` | Adds the BTB + bimodal branch predictor. |
 
-L1 D-cache: direct-mapped, 64 sets × 32 B = 2 KiB, 1-cycle hit.
-Branch predictor: BTB (64 entries) + 256 × 2-bit counters, off by default.
+L1 D-cache and I-cache: direct-mapped, 64 sets × 32 B = 2 KiB, 1-cycle
+hit (same default geometry for both; I-cache is read-only, so its
+dirty/write-back machinery — shared with the D-cache's `Cache` class —
+stays dormant). Branch predictor: BTB (64 entries) + 256 × 2-bit
+counters, off by default.
 
 ---
 
@@ -44,6 +51,38 @@ Cycles, with IPC = instructions / cycles. Predictor off throughout.
 The cache recovers essentially all of the slow-memory penalty — `cache`
 lands within a fraction of a percent of `ideal` (working sets fit in
 2 KiB). Compute-bound crc32/matmul barely move either way.
+
+---
+
+## Instruction cache
+
+Same experiment on the fetch side: hold data memory ideal (`--mem-latency=1`,
+no D-cache) and vary the instruction side. Fetch is now a real
+`ready()/tick()` client — an I-miss stalls the front end (IF/ID takes a
+bubble, PC holds) while everything already past IF keeps draining.
+
+| Benchmark | Instrs | ideal | IPC | islow | IPC | icache | IPC |
+|-----------|-------:|------:|----:|------:|----:|-------:|----:|
+| bubble_sort | 16,653 | 23,091 | 0.72 | 83,269 | 0.20 | 23,115 | 0.72 |
+| fibonacci | 2,100,697 | 2,850,951 | 0.74 | 10,503,489 | 0.20 | 2,850,975 | 0.74 |
+| crc32 | 16,324 | 20,553 | 0.79 | 81,624 | 0.20 | 20,581 | 0.79 |
+| matmul | 442,398 | 603,877 | 0.73 | 2,211,994 | 0.20 | 603,941 | 0.73 |
+| sieve | 32,015 | 45,983 | 0.70 | 160,079 | 0.20 | 46,008 | 0.70 |
+
+Two things stand out:
+
+- **`islow` IPC is exactly 0.20 on every benchmark, regardless of
+  program shape.** With no I-cache, *every* fetch pays the full 5-cycle
+  instruction-memory latency and the front-end stall never overlaps
+  itself — so throughput hits a hard ceiling of 1 instruction per
+  `imem_latency` cycles (1/5 = 0.20). This is a clean sanity check that
+  the front-end stall model is charging exactly what it should, no
+  more.
+- **The I-cache erases nearly all of it**, landing within ~0.1% of
+  `ideal` on every benchmark — closer than the D-cache did. Code is
+  overwhelmingly sequential, so a 32 B line (8 instructions) is almost
+  always fully consumed before the next miss: one miss buys 8 back-to-back
+  hits, versus the more scattered access pattern on the data side.
 
 ---
 
@@ -91,12 +130,41 @@ part the other one owns.
 
 ---
 
+## All three levers: D-cache + I-cache + branch predictor
+
+Both memories realistically slow (`--mem-latency=5 --imem-latency=5`),
+both caches on, predictor on — versus the same machine with no caches
+and no predictor at all, and versus the `ideal + bpred` floor from the
+table above (single-cycle memory on both sides, predictor on).
+
+| Benchmark | no caches, no bpred | + D+I cache | + bpred | vs ideal+bpred floor |
+|-----------|---------------------:|------------:|--------:|:---------------------:|
+| bubble_sort | 115,789 | 23,165 | 18,889 | +0.4% |
+| fibonacci | 13,504,477 | 2,851,045 | 2,550,949 | +0.004% |
+| crc32 | 82,996 | 20,781 | 17,125 | +1.3% |
+| matmul | 2,247,938 | 608,146 | 477,124 | +0.9% |
+| sieve | 184,671 | 46,333 | 35,233 | +1.0% |
+
+Adding the I-cache into the mix costs a hair more than D-cache-only +
+bpred did (compare to the `vs ideal+bpred floor` column two sections
+up) — an extra cold-start miss per instruction line that the D-cache
+comparison didn't pay. Still within ~1.3% of the fully-ideal floor: two
+independent, realistically-sized caches plus a predictor recover
+essentially all the stall/flush overhead a slow, unpredicted machine
+pays.
+
+---
+
 ## Observations
 
-- **Cache** matters where memory access dominates with good locality
+- **D-cache** matters where memory access dominates with good locality
   (bubble_sort, fibonacci ~2× under slow memory); little where compute
   dominates (crc32, matmul) or the access pattern thrashes (matmul's
   column walk).
+- **I-cache** matters everywhere, more uniformly than the D-cache —
+  every benchmark is fetch-bound without it (flat 0.20 IPC ceiling) and
+  every benchmark recovers to ~ideal with it, because instruction streams
+  are far more sequential than data access patterns.
 - **Prediction** matters everywhere — every benchmark is branch-heavy —
   lifting IPC from ~0.72 to ~0.82–0.97. Mispredicts collapse (bubble_sort
   2210 → 72).
@@ -118,6 +186,15 @@ cmake --build build -j$(nproc)          # builds the core + benchmarks
 ./build/bench_run --mem-latency=5                  ./build/<b>.elf  # slow
 ./build/bench_run --mem-latency=5 --dcache         ./build/<b>.elf  # + cache
 ./build/bench_run --mem-latency=5 --dcache --bpred ./build/<b>.elf  # both
+
+# Instruction-side (D-side held ideal at --mem-latency=1):
+./build/bench_run --mem-latency=1 --imem-latency=5           ./build/<b>.elf  # islow
+./build/bench_run --mem-latency=1 --imem-latency=5 --icache  ./build/<b>.elf  # + I-cache
+
+# All three levers together:
+./build/bench_run --mem-latency=5 --imem-latency=5                             ./build/<b>.elf
+./build/bench_run --mem-latency=5 --imem-latency=5 --dcache --icache           ./build/<b>.elf
+./build/bench_run --mem-latency=5 --imem-latency=5 --dcache --icache --bpred   ./build/<b>.elf
 
 # bench_run prints cycles: and mispred: in its summary.
 # Instruction count (retired commit-trace lines), config-invariant:
