@@ -8,18 +8,25 @@
 
 namespace cpusim {
 
-// IF stage — fetches one instruction per cycle.
+// IF stage — fetches one instruction per cycle from a ready()/tick()
+// instruction memory (a real I-cache, or a latency-1 FlatMem).
 //
-// evaluate(): reads PC, loads word from instruction memory,
-//             writes IfId into the output latch shadow.
-//             Also computes next_pc (PC+4 or redirect target).
+// evaluate(): asks imem_.ready(pc_) first. Not ready (I-miss in
+//             progress) → write a bubble, hold PC, set stalling().
+//             Ready → load the word, write IfId, compute next_pc
+//             (PC+4 or redirect target).
 //
-// latch():    stall  → skip; PC and latch hold their values.
-//             flush  → bubble inserted; PC takes redirect_pc_.
-//             normal → latch commits, PC advances to next_pc_.
+// latch():    imem_.tick() advances every cycle (mirrors MEM). Then:
+//             hazard stall → skip; PC and if_id hold their values.
+//             flush         → bubble inserted; PC takes redirect_pc_.
+//             normal        → latch commits (real instr or I-miss
+//                              bubble); PC advances unless stalling().
 //
 // Control signals are set by the hazard unit (or EX stage for
-// branch redirects) before latch() is called each cycle.
+// branch redirects) before latch() is called each cycle. A front-end
+// (I-miss) stall is orchestrated by Core reading stalling(): downstream
+// stages keep draining while IF/ID takes a bubble and PC holds — see
+// Core::tick().
 
 class FetchStage : public Stage {
 public:
@@ -44,6 +51,10 @@ public:
 
     uint32_t pc() const { return pc_; }
 
+    // True on cycles where IF is waiting on a not-yet-served I-cache
+    // access (front-end stall — see Core::tick()).
+    bool stalling() const { return fetch_stall_; }
+
 private:
     IMemory&               imem_;
     Latch<pipeline::IfId>& out_;
@@ -55,6 +66,7 @@ private:
     bool     stall_           = false;
     bool     redirect_        = false;
     uint32_t redirect_target_ = 0;
+    bool     fetch_stall_     = false;   // I-miss in progress
 };
 
 }  // namespace cpusim

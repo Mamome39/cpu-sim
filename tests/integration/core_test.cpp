@@ -32,6 +32,8 @@ static constexpr uint32_t ADD_X4_X1_X2 = 0x00208233u;
 static constexpr uint32_t SW_X3_0_X1 = 0x0030A023u;
 // lw x5, 0(x1): funct3=010, rs1=x1, rd=x5, imm=0
 static constexpr uint32_t LW_X5_0_X1 = 0x0000A283u;
+// lw x1, 0(x2): funct3=010, rs1=x2, rd=x1, imm=0
+static constexpr uint32_t LW_X1_0_X2 = 0x00012083u;
 
 // ── Basic arithmetic ─────────────────────────────────────────────────────────
 
@@ -108,6 +110,64 @@ TEST(Core, StoreLoadRoundTrip) {
                     NOP, NOP, NOP, NOP, EBREAK, NOP, NOP, NOP, NOP});
     c.run();
     EXPECT_EQ(c.read_reg(5), 42u);
+}
+
+// ── Front-end (I-cache) stall ───────────────────────────────────────────────
+
+// icache with a 4-byte line forces every fetch to be a cold miss (each
+// instruction address is its own line), so we can pin down exactly when
+// each fetch resolves.
+static SimConfig icache_forced_miss_cfg() {
+    SimConfig c = cfg();
+    c.icache_enabled            = true;
+    c.icache_line_bytes         = 4;
+    c.icache_sets               = 4;
+    c.icache_ways               = 1;
+    c.icache_hit_latency_cycles = 1;
+    c.imem_latency_cycles       = 5;   // miss cost = 5 + 1 = 6 cycles
+    return c;
+}
+
+// idx0 (ADDI) is well past IF by the time idx1's (EBREAK) own fetch is
+// still mid-I-miss. A front-end stall must hold only IF/PC — decode
+// through writeback keep draining — so idx0 should retire while idx1 is
+// still waiting on its fetch, not after. If an I-miss instead froze the
+// whole pipe (like a MEM stall), idx0 could not reach WB until idx1's
+// fetch resolved.
+TEST(Core, FetchStallOnlyFreezesFrontEnd) {
+    Core c(icache_forced_miss_cfg());
+    c.load_program({ADDI_X1_1, EBREAK, NOP, NOP, NOP});
+
+    for (int i = 0; i < 10; ++i) c.tick();
+
+    EXPECT_EQ(c.read_reg(1), 1u);   // idx0 retired
+    EXPECT_FALSE(c.halted());       // idx1 (EBREAK) has not reached WB yet
+}
+
+// mem_stall must dominate a concurrent fetch-stall: while MEM is waiting
+// on a not-yet-served access, fetch is frozen entirely (not even its
+// timer ticks) — the documented v1 pessimism. Use an I-miss (imem
+// latency 20) long enough to still be in flight throughout either D-stall
+// below, so if fetch kept ticking during the D-stall, some of that I-miss
+// would resolve "for free" and the two penalties would partially overlap.
+// Because mem_stall dominates, they are exactly additive: the total-cycle
+// delta between two D-stall lengths equals the D-stall delta itself.
+TEST(Core, MemStallDominatesFetchStall) {
+    auto cycles_to_halt = [](unsigned dmem_latency) {
+        SimConfig c = icache_forced_miss_cfg();
+        c.imem_latency_cycles = 20;
+        c.dmem_latency_cycles = dmem_latency;
+        Core core(c);
+        core.write_reg(2, BASE);
+        core.load_program({LW_X1_0_X2, EBREAK, NOP, NOP, NOP});
+        core.run(100000);
+        return core.cycles();
+    };
+
+    uint64_t low  = cycles_to_halt(2);
+    uint64_t high = cycles_to_halt(10);
+
+    EXPECT_EQ(high - low, 10u - 2u);
 }
 
 // ── Cycle budget ─────────────────────────────────────────────────────────────

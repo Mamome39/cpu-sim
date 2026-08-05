@@ -9,6 +9,16 @@ FetchStage::FetchStage(IMemory& imem,
     : imem_(imem), out_(out), bp_(bp), pc_(reset_pc) {}
 
 void FetchStage::evaluate() {
+    // Ask the instruction memory whether this fetch is served yet.
+    // While it is not, stall the front end and emit a bubble; the
+    // load runs only on the served cycle (mirrors MemAccessStage).
+    fetch_stall_ = !imem_.ready(pc_);
+    if (fetch_stall_) {
+        out_.write(pipeline::IfId{});   // bubble while the I-miss resolves
+        next_pc_ = pc_;                 // PC holds; latch() enforces this
+        return;
+    }
+
     pipeline::IfId result;
     result.pc    = pc_;
     result.raw   = imem_.load_word(pc_);
@@ -32,13 +42,15 @@ void FetchStage::evaluate() {
 }
 
 void FetchStage::latch() {
+    imem_.tick();   // advance the instruction memory's timing every cycle
+
     if (redirect_) {
         // Wrong-path instructions behind us become bubbles.
         out_.flush();
         pc_ = redirect_target_;
     } else if (!stall_) {
-        out_.latch();
-        pc_ = next_pc_;
+        out_.latch();                   // commits real instr or I-miss bubble
+        if (!fetch_stall_) pc_ = next_pc_;   // hold PC while the I-miss resolves
     }
     // Reset transient signals — must be re-asserted every cycle.
     stall_    = false;
