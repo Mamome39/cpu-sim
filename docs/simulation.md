@@ -6,8 +6,14 @@
 
 ### Setup
 
+Construction takes a single `SimConfig` — base address, memory size, and
+every timing/cache/predictor knob (see [Memory Model](memory-model.md) and
+[Branch Prediction](branch-prediction.md)). Adding a new knob is a new
+`SimConfig` field; the constructor signature never grows.
+
 ```cpp
-Core core(0x80000000, 0x10000);    // base address, memory size
+SimConfig cfg;                     // base 0x80000000, 64 KiB by default
+Core core(cfg);
 core.load_program({...});          // copy words into imem at base
 core.write_reg(3, 0x80000000);    // pre-load register (test / ELF loader)
 core.store_word(0x80000000, 42u); // pre-load dmem
@@ -33,6 +39,8 @@ core.load_word(addr); // dmem read-back
 core.pc();            // current fetch PC
 core.cycles();        // total clock cycles elapsed
 core.halted();        // true once EBREAK has retired
+core.stats();         // SimStats — branch correct/mispredict counts
+core.mispredicts();   // shorthand for stats().branch_mispredicts
 core.read_regs();     // print all 32 registers to stdout (two-column)
 ```
 
@@ -52,8 +60,19 @@ reaches EX (same mechanism as branch redirect), which is not yet implemented.
 
 ## Tracer
 
-`Tracer` (`sim/tracer.h`) records one commit-log line per retired
-instruction, in Spike's `--log-commits` format:
+`Tracer` (`sim/tracer.h`) has two output formats, selected by
+`Tracer::Format` at construction:
+
+- **Commit** (default) — one line per *retired* instruction, matching
+  Spike's `--log-commits`; bubble cycles emit nothing. This is the
+  format the Spike diff compares.
+- **Cycle** — one line per *cycle*, prefixed with the cycle number; a
+  stalled/bubble cycle prints a blank body, so stalls are visible as
+  gaps. Perf-mode diagnostic, not compared against anything. Selected by
+  `bench_run --cycles=<file>` (takes priority over `--trace` if both are
+  given).
+
+Commit format:
 
 ```
 core   0: 3 0x80000000 (0x00100093) x1  0x00000001
@@ -156,12 +175,24 @@ ELF must match `Core::base_` (enforced by an exception); `link.ld` places
 ### Phase 3 — Run
 
 ```bash
-./build/bench_run [--trace=<file>] <elf> [max_cycles]
+./build/bench_run [--trace=<file>] [--cycles=<file>] [--mem-latency=<n>] \
+    [--dcache] [--dcache-ways=<n>] [--imem-latency=<n>] [--icache] \
+    [--icache-ways=<n>] [--bpred] <elf> [max_cycles]
 ```
 
 `bench_run` loads the ELF, optionally attaches a Tracer writing to
-`<file>`, runs until EBREAK, then prints cycle count, wall time, and all
-32 registers.
+`<file>` (`--trace` for the Spike-format commit log, `--cycles` for a
+cycle-by-cycle view — one at a time, `--cycles` wins if both are given),
+runs until EBREAK, then prints cycle count, IPC-relevant stats (branch
+accuracy from `SimStats`), wall time, and all 32 registers.
+
+The remaining flags are the **performance-mode** knobs: `--mem-latency`/
+`--imem-latency` set the D-/I-memory serve latency (the miss penalty once
+a cache is enabled); `--dcache`/`--icache` (+ `-ways=`) turn on the L1
+caches; `--bpred` turns on the BTB + bimodal branch predictor. See
+[Memory Model](memory-model.md) and [Branch Prediction](branch-prediction.md)
+for what each models, and [Performance Report](../report.md) for results
+across configurations.
 
 ### Phase 4 — Spike diff
 
