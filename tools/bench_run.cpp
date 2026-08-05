@@ -12,8 +12,9 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::fprintf(stderr,
             "usage: bench_run [--trace=<file>] [--cycles=<file>] "
-            "[--mem-latency=<n>] [--dcache] [--dcache-ways=<n>] [--bpred] "
-            "<elf> [max_cycles]\n");
+            "[--mem-latency=<n>] [--dcache] [--dcache-ways=<n>] "
+            "[--imem-latency=<n>] [--icache] [--icache-ways=<n>] "
+            "[--bpred] <elf> [max_cycles]\n");
         return 1;
     }
 
@@ -21,10 +22,13 @@ int main(int argc, char* argv[]) {
     const char* cycles_path = nullptr;  // cycle-by-cycle view
     const char* elf_path    = nullptr;
     uint64_t    max_cycles  = ~0ULL;
-    unsigned    mem_latency = 5;         // data-memory serve latency
-    bool        dcache      = false;     // enable the L1 D-cache
-    unsigned    dcache_ways = 1;         // D-cache associativity
-    bool        bpred       = false;     // enable the branch predictor
+    unsigned    mem_latency  = 5;         // data-memory serve latency
+    bool        dcache       = false;     // enable the L1 D-cache
+    unsigned    dcache_ways  = 1;         // D-cache associativity
+    unsigned    imem_latency = 1;         // instruction-memory serve latency
+    bool        icache       = false;     // enable the L1 I-cache
+    unsigned    icache_ways  = 1;         // I-cache associativity
+    bool        bpred        = false;     // enable the branch predictor
 
     for (int i = 1; i < argc; ++i) {
         if (std::strncmp(argv[i], "--trace=", 8) == 0) {
@@ -38,6 +42,14 @@ int main(int argc, char* argv[]) {
             dcache = true;
         } else if (std::strncmp(argv[i], "--dcache-ways=", 14) == 0) {
             dcache_ways = static_cast<unsigned>(
+                std::strtoul(argv[i] + 14, nullptr, 10));
+        } else if (std::strncmp(argv[i], "--imem-latency=", 15) == 0) {
+            imem_latency = static_cast<unsigned>(
+                std::strtoul(argv[i] + 15, nullptr, 10));
+        } else if (std::strcmp(argv[i], "--icache") == 0) {
+            icache = true;
+        } else if (std::strncmp(argv[i], "--icache-ways=", 14) == 0) {
+            icache_ways = static_cast<unsigned>(
                 std::strtoul(argv[i] + 14, nullptr, 10));
         } else if (std::strcmp(argv[i], "--bpred") == 0) {
             bpred = true;
@@ -57,6 +69,9 @@ int main(int argc, char* argv[]) {
     cfg.dmem_latency_cycles = mem_latency;   // becomes the miss penalty
     cfg.dcache_enabled      = dcache;
     cfg.dcache_ways         = dcache_ways;
+    cfg.imem_latency_cycles = imem_latency;  // becomes the I-miss penalty
+    cfg.icache_enabled      = icache;
+    cfg.icache_ways         = icache_ways;
     cfg.bpred_enabled       = bpred;
 
     try {
@@ -96,6 +111,11 @@ int main(int argc, char* argv[]) {
                     dcache ? " (miss penalty)" : "");
         std::printf("dcache:    %s", dcache ? "on" : "off");
         if (dcache) std::printf(" (%u-way)", dcache_ways);
+        std::printf("\n");
+        std::printf("imem lat:  %u cycle(s)%s\n", imem_latency,
+                    icache ? " (miss penalty)" : "");
+        std::printf("icache:    %s", icache ? "on" : "off");
+        if (icache) std::printf(" (%u-way)", icache_ways);
         std::printf("\n");
         std::printf("bpred:     %s\n", bpred ? "on" : "off");
         const cpusim::SimStats& s = core.stats();

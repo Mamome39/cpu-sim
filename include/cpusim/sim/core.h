@@ -83,6 +83,8 @@ private:
     uint32_t base_;
 
     FlatMem imem_;
+    std::unique_ptr<Cache> icache_;  // L1 I-cache; null unless enabled
+    IMemory& iport_;                 // fetch's port: icache_ or imem_
     FlatMem dram_;                   // backing data memory (last level)
     std::unique_ptr<Cache> dcache_;  // L1 D-cache; null unless enabled
     IMemory& dmem_;                  // MEM's port: dcache_ or dram_

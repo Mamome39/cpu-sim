@@ -35,6 +35,17 @@ struct SimConfig {
     unsigned dcache_hit_latency_cycles = 1;
     unsigned dcache_ways               = 1;    // 1 = direct-mapped. Pow2.
 
+    // ── Instruction memory + L1 I-cache (timing overlay) ──────────
+    // Mirrors the D-cache: fetch talks to the cache instead of the
+    // backing instruction memory directly when enabled. Read-only, so
+    // the write-back/dirty machinery in Cache stays dormant here.
+    unsigned imem_latency_cycles       = 1;    // I-miss penalty
+    bool     icache_enabled            = false;
+    unsigned icache_line_bytes         = 32;
+    unsigned icache_sets               = 64;   // 64 x 32 B = 2 KiB
+    unsigned icache_hit_latency_cycles = 1;
+    unsigned icache_ways               = 1;    // 1 = direct-mapped. Pow2.
+
     // ── Branch predictor (BTB + bimodal 2-bit) ───────────────────
     // When enabled, IF predicts branch direction/target; a correct
     // prediction costs no bubble, a mispredict pays the usual 2-cycle

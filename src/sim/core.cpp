@@ -8,7 +8,14 @@ namespace cpusim {
 
 Core::Core(const SimConfig& cfg)
     : base_(cfg.ram_base_addr)
-    , imem_(cfg.ram_base_addr, cfg.ram_size_bytes)
+    , imem_(cfg.ram_base_addr, cfg.ram_size_bytes, cfg.imem_latency_cycles)
+    , icache_(cfg.icache_enabled
+              ? std::make_unique<Cache>(imem_, cfg.icache_line_bytes,
+                                        cfg.icache_sets,
+                                        cfg.icache_hit_latency_cycles,
+                                        cfg.icache_ways)
+              : nullptr)
+    , iport_(icache_ ? static_cast<IMemory&>(*icache_) : imem_)
     , dram_(cfg.ram_base_addr, cfg.ram_size_bytes, cfg.dmem_latency_cycles)
     , dcache_(cfg.dcache_enabled
               ? std::make_unique<Cache>(dram_, cfg.dcache_line_bytes,
@@ -21,7 +28,7 @@ Core::Core(const SimConfig& cfg)
              ? std::make_unique<BranchPredictor>(cfg.bpred_bht_entries,
                                                  cfg.bpred_btb_entries)
              : nullptr)
-    , fetch_(imem_, if_id_, cfg.ram_base_addr, bpred_.get())
+    , fetch_(iport_, if_id_, cfg.ram_base_addr, bpred_.get())
     , decode_(rf_, if_id_, id_ex_)
     , fwd_(ex_mem_, mem_wb_)
     , ex_(id_ex_, ex_mem_, fwd_, fetch_, decode_, bpred_.get(), &stats_)

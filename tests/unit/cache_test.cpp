@@ -179,3 +179,38 @@ TEST(Cache, DataDelegatesToBacking) {
     c.store_byte(A + 1, 0xAB);
     EXPECT_EQ(c.load_byte(A + 1), 0xAB);
 }
+
+// ── I-cache (Cache pointed at an instruction backing) ───────────────────
+//
+// The I-cache is just a Cache instance over imem_ instead of dram_ — same
+// class, same timing rules. These mirror the D-cache timing tests above
+// to prove that reuse holds; the fetch stage does not drive this port
+// yet (Step 4), so there is no pipeline-level test here.
+
+TEST(Cache, InstructionColdMissThenHit) {
+    FlatMem imem(BASE, SZ, DRAM_LAT);   // stands in for instruction memory
+    Cache   ic(imem, LINE, SETS, HIT_LAT);
+
+    EXPECT_EQ(access_cycles(ic, A), DRAM_LAT + HIT_LAT);  // cold miss
+    EXPECT_FALSE(ic.last_was_hit());
+    EXPECT_EQ(access_cycles(ic, A), HIT_LAT);             // hit
+    EXPECT_TRUE(ic.last_was_hit());
+}
+
+TEST(Cache, InstructionSpatialLocalityWithinLine) {
+    FlatMem imem(BASE, SZ, DRAM_LAT);
+    Cache   ic(imem, LINE, SETS, HIT_LAT);
+
+    EXPECT_EQ(access_cycles(ic, A),     DRAM_LAT + HIT_LAT);  // miss
+    EXPECT_EQ(access_cycles(ic, A + 4), HIT_LAT);             // same line
+}
+
+TEST(Cache, InstructionAssociativityAvoidsConflict) {
+    FlatMem imem(BASE, SZ, DRAM_LAT);
+    Cache   ic(imem, LINE, SETS, HIT_LAT, /*ways=*/2);
+
+    EXPECT_EQ(access_cycles(ic, A), DRAM_LAT + HIT_LAT);  // miss, way 0
+    EXPECT_EQ(access_cycles(ic, B), DRAM_LAT + HIT_LAT);  // miss, way 1
+    EXPECT_EQ(access_cycles(ic, A), HIT_LAT);             // both resident
+    EXPECT_EQ(access_cycles(ic, B), HIT_LAT);
+}
