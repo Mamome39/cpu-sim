@@ -26,6 +26,7 @@ commit-trace lines. Reproduce steps are at the bottom.
 | **cache** | `--mem-latency=5 --dcache` | Slow memory behind the L1 D-cache (5 = miss penalty). |
 | **islow** | `--imem-latency=5` | 5-cycle instruction memory, no I-cache. |
 | **icache** | `--imem-latency=5 --icache` | Slow instruction memory behind the L1 I-cache. |
+| **iprefetch** | `... --icache --iprefetch` | Adds next-line instruction prefetch on top of the I-cache. |
 | **bpred** | `... --bpred` | Adds the BTB + bimodal branch predictor. |
 
 L1 D-cache and I-cache: direct-mapped, 64 sets × 32 B = 2 KiB, 1-cycle
@@ -83,6 +84,105 @@ Two things stand out:
   overwhelmingly sequential, so a 32 B line (8 instructions) is almost
   always fully consumed before the next miss: one miss buys 8 back-to-back
   hits, versus the more scattered access pattern on the data side.
+
+---
+
+## Instruction prefetch
+
+Next-line prefetch sits on top of the I-cache: on a demand miss, the
+policy also requests the following line(s). Same setup as above
+(`--mem-latency=1 --imem-latency=5 --icache`), degree 1.
+
+`useful` = prefetched lines a later demand fetch actually used;
+`useless` = prefetched lines evicted before any demand touched them.
+`text` is the benchmark's `.text` size, i.e. its entire instruction
+footprint, in 32 B lines.
+
+| Benchmark | text | icache | +prefetch | cyc saved | useful/useless |
+|-----------|-----:|-------:|----------:|----------:|:--------------:|
+| bubble_sort | 136 B (5 lines) | 23,115 | 23,097 | 18 (0.08%) | 4/0 |
+| fibonacci | 136 B (5 lines) | 2,850,975 | 2,850,963 | 12 (0.0004%) | 3/0 |
+| crc32 | 228 B (8 lines) | 20,581 | 20,558 | 23 (0.11%) | 5/0 |
+| matmul | 380 B (12 lines) | 603,941 | 603,886 | 55 (0.009%) | 10/0 |
+| sieve | 152 B (5 lines) | 46,008 | 45,988 | 20 (0.04%) | 4/0 |
+
+**The prefetcher works exactly as designed and it barely matters here.**
+Every prefetch it issues is useful — zero useless on every benchmark, no
+cache pollution — but there is almost nothing left to win. These
+benchmarks' entire instruction footprints are 5–12 lines and fit in the
+2 KiB I-cache many times over, so after the cold start the I-cache
+never misses again. All I-misses are compulsory, and the useful count
+(3–10) is essentially "every line of the program except the first".
+Prefetch turns those compulsory misses into hits and then has no more
+work to do for the rest of the run.
+
+### Degree sweep
+
+Chain length past degree 1 buys nothing:
+
+| Benchmark | deg 1 | deg 2 | deg 4 | deg 8 |
+|-----------|------:|------:|------:|------:|
+| bubble_sort | 23,097 | 23,096 | 23,096 | 23,096 |
+| fibonacci | 2,850,963 | 2,850,965 | 2,850,965 | 2,850,965 |
+| crc32 | 20,558 | 20,558 | 20,558 | 20,558 |
+| matmul | 603,886 | 603,890 | 603,890 | 603,890 |
+| sieve | 45,988 | 45,988 | 45,988 | 45,988 |
+
+Expected: a 5–12 line program is consumed by degree 2, so higher
+degrees run off the end of `.text` into lines nothing ever fetches.
+fibonacci and matmul come out a few cycles *worse* at degree ≥ 2 — the
+extra requests occupy the instruction-memory port ahead of a demand
+miss without ever paying off.
+
+### Latency sensitivity
+
+Cycles saved by prefetch (degree 1) as instruction-memory latency grows:
+
+| Benchmark | imem lat 5 | 20 | 50 |
+|-----------|-----------:|---:|---:|
+| bubble_sort | 18 | 34 | 64 |
+| fibonacci | 12 | 16 | 16 |
+| crc32 | 23 | 47 | 77 |
+| matmul | 55 | 114 | 204 |
+| sieve | 20 | 23 | 23 |
+
+The saving grows with latency but **saturates well below `latency ×
+useful`**. matmul recovers 5.5 cycles per useful prefetch at latency 5
+(the full miss cost), but only 18.5 at latency 50 — not 50. A
+prefetch's head start is bounded by how long the core spends in the
+current line: at ~0.73 IPC, 8 instructions is ~11 cycles of lead time,
+so beyond that the demand fetch catches up with the still-in-flight
+prefetch and eats the remainder. This is the classic timeliness limit,
+and it is why deeper prefetch (which buys lead time, not per-line
+latency hiding) is the lever that would matter on a machine with a
+bigger code footprint.
+
+### Stacked with the other levers
+
+With everything on (`--mem-latency=5 --imem-latency=5 --dcache --icache
+--bpred`):
+
+| Benchmark | all three | + prefetch | cyc saved |
+|-----------|----------:|-----------:|----------:|
+| bubble_sort | 18,889 | 18,871 | 18 |
+| fibonacci | 2,550,949 | 2,550,937 | 12 |
+| crc32 | 17,125 | 17,102 | 23 |
+| matmul | 477,124 | 477,069 | 55 |
+| sieve | 35,233 | 35,213 | 20 |
+
+Identical savings to the I-cache-only column — the compulsory misses
+prefetch removes are independent of what the D-cache and predictor do.
+
+Commit traces are byte-identical with prefetch on at every degree
+(verified against the no-prefetch trace on sieve, crc32, matmul), as
+they must be: prefetch only moves lines into the cache early.
+
+**Verdict: not worth enabling by default at this cache size.** The
+policy is correct and pollution-free, but the benchmark suite has no
+instruction-fetch problem left for it to solve. It becomes measurable
+only with a code footprint that exceeds the I-cache — a workload the
+suite does not currently contain, and the reason a microarch-stress
+benchmark with a large loop body is the next thing worth writing.
 
 ---
 
@@ -165,6 +265,11 @@ pays.
   every benchmark is fetch-bound without it (flat 0.20 IPC ceiling) and
   every benchmark recovers to ~ideal with it, because instruction streams
   are far more sequential than data access patterns.
+- **Instruction prefetch** is a no-op at this scale: it converts the
+  handful of compulsory I-misses into hits (all useful, none useless)
+  and saves 12–55 cycles, ≤0.11% anywhere. Every benchmark's `.text`
+  fits in the I-cache many times over, so there is no capacity miss for
+  it to hide.
 - **Prediction** matters everywhere — every benchmark is branch-heavy —
   lifting IPC from ~0.72 to ~0.82–0.97. Mispredicts collapse (bubble_sort
   2210 → 72).
@@ -190,6 +295,11 @@ cmake --build build -j$(nproc)          # builds the core + benchmarks
 # Instruction-side (D-side held ideal at --mem-latency=1):
 ./build/bench_run --mem-latency=1 --imem-latency=5           ./build/<b>.elf  # islow
 ./build/bench_run --mem-latency=1 --imem-latency=5 --icache  ./build/<b>.elf  # + I-cache
+
+# Instruction prefetch (degree sweep; --imem-latency also varied 5/20/50):
+./build/bench_run --mem-latency=1 --imem-latency=5 --icache --iprefetch \
+    [--iprefetch-degree=<n>] ./build/<b>.elf
+# prints "pf useful/useless:" alongside cycles: when --iprefetch is on.
 
 # All three levers together:
 ./build/bench_run --mem-latency=5 --imem-latency=5                             ./build/<b>.elf
