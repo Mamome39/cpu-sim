@@ -28,7 +28,7 @@ core.tick();          // single clock step; returns false when halted
 ```
 
 `max_cycles` defaults to `~0ULL` (effectively unlimited). It is a hard cap
-on `Core::cycles_`, not a wall-clock timeout — useful for guarding against
+on `SimStats::cycles`, not a wall-clock timeout — useful for guarding against
 infinite loops when no EBREAK is present.
 
 ### Inspection
@@ -38,8 +38,9 @@ core.read_reg(1);     // register file read-back
 core.load_word(addr); // dmem read-back
 core.pc();            // current fetch PC
 core.cycles();        // total clock cycles elapsed
+core.instructions();  // total instructions retired through WB
 core.halted();        // true once EBREAK has retired
-core.stats();         // SimStats — branch correct/mispredict counts
+core.stats();         // SimStats — cycles, retired insts, branch counts
 core.mispredicts();   // shorthand for stats().branch_mispredicts
 core.read_regs();     // print all 32 registers to stdout (two-column)
 ```
@@ -183,8 +184,9 @@ ELF must match `Core::base_` (enforced by an exception); `link.ld` places
 `bench_run` loads the ELF, optionally attaches a Tracer writing to
 `<file>` (`--trace` for the Spike-format commit log, `--cycles` for a
 cycle-by-cycle view — one at a time, `--cycles` wins if both are given),
-runs until EBREAK, then prints cycle count, IPC-relevant stats (branch
-accuracy from `SimStats`), wall time, and all 32 registers.
+runs until EBREAK, then prints cycle count, retired instruction count and
+IPC, branch accuracy (all from `SimStats`), wall time, and all 32
+registers.
 
 The remaining flags are the **performance-mode** knobs: `--mem-latency`/
 `--imem-latency` set the D-/I-memory serve latency (the miss penalty once

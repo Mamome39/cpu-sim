@@ -62,7 +62,8 @@ public:
     uint32_t read_reg(uint8_t reg)    const;
     uint32_t load_word(uint32_t addr) const;
     uint32_t pc()     const;
-    uint64_t cycles() const { return cycles_; }
+    uint64_t cycles() const { return stats_.cycles; }
+    uint64_t instructions() const { return stats_.instructions; }
     bool     halted() const { return halted_; }
     uint64_t mispredicts() const { return stats_.branch_mispredicts; }
     const SimStats& stats() const { return stats_; }
@@ -107,8 +108,7 @@ private:
     HazardUnit     hazard_;
 
     Tracer*  tracer_  = nullptr;
-    uint64_t cycles_ = 0;
-    bool     halted_ = false;
+    bool     halted_  = false;
 };
 
 }  // namespace cpusim

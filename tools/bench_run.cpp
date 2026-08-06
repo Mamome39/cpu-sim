@@ -150,7 +150,13 @@ int main(int argc, char* argv[]) {
         std::printf("halted:    %s\n",
                     core.halted() ? "yes" : "no (cycle limit)");
         std::printf("cycles:    %llu\n",
-                    static_cast<unsigned long long>(core.cycles()));
+                    static_cast<unsigned long long>(s.cycles));
+        std::printf("insts:     %llu\n",
+                    static_cast<unsigned long long>(s.instructions));
+        if (s.cycles)
+            std::printf("IPC:       %.3f\n",
+                        static_cast<double>(s.instructions) /
+                        static_cast<double>(s.cycles));
         std::printf("wall time: %.4f s\n",  elapsed_s);
         std::printf("sim speed: %.2f Mcycles/s\n", mcps);
         std::printf("\n");

@@ -76,11 +76,16 @@ bool Core::tick() {
     const bool mem_stall = mem_.stalling();
 
     const pipeline::MemWb& wb_in = mem_wb_.read();
-    if (tracer_) tracer_->record(wb_in, cycles_);
+    if (tracer_) tracer_->record(wb_in, stats_.cycles);
 
     // Detect EBREAK reaching WB before any latch commits.
     if (wb_in.valid && wb_in.op == rv32i::Op::EBREAK)
         halted_ = true;
+
+    // WB drains on both paths below, so a valid instruction at the
+    // MEM/WB input retires this cycle either way. A MEM stall pushes
+    // a bubble into mem_wb_, so no instruction is counted twice.
+    if (wb_in.valid) ++stats_.instructions;
 
     if (mem_stall) {
         // Preserve the frozen EX instruction's operands before the
@@ -91,7 +96,7 @@ bool Core::tick() {
         fwd_.latch();
         mem_.latch();   // MEM/WB gets a bubble; memory timer advances
         // ex_/hazard_/decode_/fetch_ NOT latched → IF/ID/EX + PC hold.
-        ++cycles_;
+        ++stats_.cycles;
         return !halted_;
     }
 
@@ -103,7 +108,7 @@ bool Core::tick() {
     decode_.latch();
     fetch_.latch();
 
-    ++cycles_;
+    ++stats_.cycles;
     return !halted_;
 }
 
@@ -124,7 +129,7 @@ void Core::capture_ex_operands() {
 }
 
 void Core::run(uint64_t max_cycles) {
-    while (!halted_ && cycles_ < max_cycles)
+    while (!halted_ && stats_.cycles < max_cycles)
         tick();
 }
 

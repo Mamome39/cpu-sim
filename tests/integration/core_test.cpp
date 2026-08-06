@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <utility>
 #include "cpusim/sim/core.h"
 
 using namespace cpusim;
@@ -168,6 +169,48 @@ TEST(Core, MemStallDominatesFetchStall) {
     uint64_t high = cycles_to_halt(10);
 
     EXPECT_EQ(high - low, 10u - 2u);
+}
+
+// ── Retired instruction count ────────────────────────────────────────────────
+
+// Straight-line code retires exactly one instruction per program word,
+// up to and including the EBREAK that halts. The trailing NOPs are
+// still in the pipeline at halt and never reach WB.
+TEST(Core, CountsRetiredInstructions) {
+    Core c(cfg());
+    c.load_program({ADDI_X1_1, ADDI_X2_2, ADDI_X3_42, EBREAK,
+                    NOP, NOP, NOP, NOP});
+    c.run();
+    ASSERT_TRUE(c.halted());
+    EXPECT_EQ(c.instructions(), 4u);
+    EXPECT_EQ(c.stats().instructions, c.instructions());
+}
+
+// Stalls cost cycles, never instructions: the same program under slow
+// memory (load-use interlock + MEM stall + I-miss front-end stalls)
+// retires the same count while taking strictly longer. Bubbles are
+// invalid at WB, so they are not miscounted as retirements.
+TEST(Core, StallsDoNotInflateInstructionCount) {
+    // Core is not copyable, so return just the two counters.
+    auto run = [](const SimConfig& sc) {
+        Core c(sc);
+        c.write_reg(2, BASE);
+        c.load_program({LW_X1_0_X2, ADD_X4_X1_X2, EBREAK,
+                        NOP, NOP, NOP, NOP});
+        c.run(100000);
+        EXPECT_TRUE(c.halted());
+        return std::pair<uint64_t, uint64_t>{c.instructions(), c.cycles()};
+    };
+
+    SimConfig slow = icache_forced_miss_cfg();
+    slow.dmem_latency_cycles = 10;
+
+    auto [fast_insts, fast_cycles] = run(cfg());
+    auto [slow_insts, slow_cycles] = run(slow);
+
+    EXPECT_EQ(fast_insts, 3u);
+    EXPECT_EQ(slow_insts, fast_insts);
+    EXPECT_GT(slow_cycles, fast_cycles);
 }
 
 // ── Cycle budget ─────────────────────────────────────────────────────────────

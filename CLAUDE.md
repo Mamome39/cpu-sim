@@ -100,7 +100,7 @@ Layout:
 - `include/cpusim/sim/` + `src/sim/` — `Core` (wires everything
   together, drives the tick loop), `Tracer` (Spike-compatible commit
   trace), `ElfLoader`, `SimConfig` (every tunable knob), `SimStats`
-  (branch correct/mispredict counter).
+  (cycles, retired instructions, branch correct/mispredict counters).
 - `tests/unit/` — one file per component; `tests/integration/` — full
   `Core`/pipeline/trace tests; `tests/isa/` — the official riscv-tests
   rv32ui suite, vendored. Everything outside `tests/isa/env/` is
@@ -129,3 +129,5 @@ Further docs, read as needed for the area you're touching:
 - [docs/branch-prediction.md](docs/branch-prediction.md) — BTB + bimodal, gshare upgrade path
 - [docs/implementation-notes.md](docs/implementation-notes.md) — design decisions and tradeoffs
 - [report.md](report.md) — cycles/IPC per memory configuration
+
+## Testing
