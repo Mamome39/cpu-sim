@@ -46,6 +46,15 @@ struct SimConfig {
     unsigned icache_hit_latency_cycles = 1;
     unsigned icache_ways               = 1;    // 1 = direct-mapped. Pow2.
 
+    // ── Instruction prefetch (I-cache only) ───────────────────────
+    // When enabled, the I-cache runs a background "next-line" prefetch
+    // on backing cycles the demand path leaves idle (serving a hit).
+    // A demand access that catches an in-flight prefetch pays only the
+    // remaining fetch time (partial hit) instead of a full miss. degree
+    // is how many lines ahead to chain while the port stays idle.
+    bool     icache_prefetch_enabled = false;
+    unsigned icache_prefetch_degree  = 1;
+
     // ── Branch predictor (BTB + bimodal 2-bit) ───────────────────
     // When enabled, IF predicts branch direction/target; a correct
     // prediction costs no bubble, a mispredict pays the usual 2-cycle

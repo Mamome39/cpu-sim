@@ -5,6 +5,8 @@
 #include <vector>
 #include "cpusim/memory/mem_interface.h"
 #include "cpusim/memory/eviction_policy.h"
+#include "cpusim/memory/prefetch_policy.h"
+#include "cpusim/sim/sim_stats.h"
 
 namespace cpusim {
 
@@ -31,15 +33,31 @@ namespace cpusim {
 // when a dirty line is evicted — the miss first drives the backing to
 // flush the victim, then fetches the new line. Data still lives in the
 // backing (Option A), so the flush is timing-only but honestly charged.
+//
+// Prefetch (optional, off by default): when enabled, a background
+// "next-line" engine drives the backing port on cycles the demand path
+// leaves idle (i.e. while serving a hit) to speculatively fetch ahead,
+// up to `prefetch_degree` lines, via a replaceable PrefetchPolicy (see
+// prefetch_policy.h — mirrors EvictionPolicy). A demand access that
+// catches an in-flight prefetch of the same line merges with it and
+// pays only the remaining fetch time, not a fresh miss. Demand always
+// has priority: a prefetch whose reserved way collides with a demand
+// install is simply dropped. Never installs into a dirty victim (the
+// engine has no writeback path) — inert for a write-back D-cache.
 class Cache : public IMemory {
 public:
     // line_bytes, sets, and ways must be powers of two. ways defaults to
-    // 1 (direct-mapped) so existing call sites are unaffected.
+    // 1 (direct-mapped) so existing call sites are unaffected. Prefetch
+    // is off by default (prefetch_enabled = false); stats may be null,
+    // in which case prefetch outcomes are simply not probed.
     Cache(IMemory& backing,
           unsigned line_bytes,
           unsigned sets,
           unsigned hit_latency,
-          unsigned ways = 1);
+          unsigned ways = 1,
+          bool prefetch_enabled = false,
+          unsigned prefetch_degree = 1,
+          SimStats* stats = nullptr);
 
     // Data path — delegated to the backing memory (always correct).
     uint32_t load_word(uint32_t addr) const override;
@@ -57,17 +75,19 @@ public:
     bool last_was_hit() const { return last_hit_; }
 
 private:
-    enum class Phase { Idle, HitWait, WriteBack, MissFetch };
+    enum class Phase { Idle, HitWait, WriteBack, MissFetch, PrefetchWait };
 
     // One cache line's tag state (no data — see the class comment).
     struct Line {
-        bool     valid = false;
-        bool     dirty = false;   // reserved for write-back (Step 2)
-        uint32_t tag   = 0;
+        bool     valid      = false;
+        bool     dirty      = false;   // reserved for write-back (Step 2)
+        bool     prefetched = false;   // filled by prefetch, unused
+        uint32_t tag        = 0;
     };
 
     uint32_t index_of(uint32_t addr) const;
     uint32_t tag_of(uint32_t addr)   const;
+    uint32_t line_addr_of(uint32_t addr) const;   // line-align addr
 
     // Return the way holding addr in its set, or -1 on a miss.
     int  find_way(uint32_t addr) const;
@@ -77,6 +97,23 @@ private:
 
     Line&       line_at(uint32_t set, unsigned way);
     const Line& line_at(uint32_t set, unsigned way) const;
+
+    // Install addr into (set, way): sets valid/dirty/tag, touches the
+    // replacement policy, and — if this overwrites a still-unused
+    // prefetch — counts it useless. Shared by MissFetch and
+    // PrefetchWait completion.
+    void install_line(uint32_t set, unsigned way, uint32_t addr,
+                      bool is_write, bool from_prefetch);
+
+    // Consider starting a new background prefetch for the line after
+    // `addr`, if prefetching is enabled, nothing is already queued, the
+    // target isn't already resident, and its victim isn't dirty (the
+    // engine has no writeback path). No-op otherwise.
+    void maybe_start_prefetch(uint32_t addr);
+    // Drive the backing port for the queued/in-flight prefetch, if
+    // any. Only safe when the demand path isn't using backing_ itself
+    // (phase_ is Idle or HitWait).
+    void service_prefetch();
 
     IMemory& backing_;
 
@@ -92,7 +129,7 @@ private:
     // Address of the line resident in (set, way) — for victim writeback.
     uint32_t addr_of(uint32_t set, uint32_t tag) const;
 
-    // Timing state — one outstanding request.
+    // Timing state — one outstanding demand request.
     Phase    phase_         = Phase::Idle;
     uint32_t cur_addr_      = 0;
     bool     cur_is_write_  = false;   // is the current access a store?
@@ -100,6 +137,15 @@ private:
     uint32_t wb_addr_       = 0;       // dirty victim's address to flush
     int      hit_remaining_ = 0;
     bool     last_hit_      = false;
+
+    // Prefetch engine state (independent of the demand phase above).
+    std::unique_ptr<PrefetchPolicy> pf_policy_;   // null = disabled
+    unsigned pf_degree_ = 1;
+    bool     pf_active_ = false;   // pf_addr_/pf_way_ queued/in flight
+    uint32_t pf_addr_   = 0;       // line-aligned prefetch target
+    unsigned pf_way_    = 0;       // victim way reserved for it
+    unsigned pf_chain_  = 0;       // lines prefetched this chain
+    SimStats* stats_    = nullptr; // optional probe
 };
 
 }  // namespace cpusim

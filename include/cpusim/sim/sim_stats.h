@@ -17,6 +17,12 @@ struct SimStats {
     // dynamic branch/jump count, so accuracy = correct / (correct+mispr).
     uint64_t branch_correct     = 0;   // resolved == predicted
     uint64_t branch_mispredicts = 0;   // resolved != predicted
+
+    // I-cache prefetch outcomes, counted by Cache. "Useful" = a demand
+    // access later touched the prefetched line (hit or partial-hit
+    // merge); "useless" = evicted before any demand ever used it.
+    uint64_t icache_prefetch_useful  = 0;
+    uint64_t icache_prefetch_useless = 0;
 };
 
 }  // namespace cpusim

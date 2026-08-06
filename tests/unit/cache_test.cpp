@@ -214,3 +214,59 @@ TEST(Cache, InstructionAssociativityAvoidsConflict) {
     EXPECT_EQ(access_cycles(ic, A), HIT_LAT);             // both resident
     EXPECT_EQ(access_cycles(ic, B), HIT_LAT);
 }
+
+// ── Prefetch (background next-line engine) ──────────────────────────
+//
+// Off by default (all tests above run unmodified with prefetch
+// disabled); these exercise the engine explicitly enabled.
+
+// Demand access to L0 queues a background prefetch of L1 immediately;
+// it advances on every cycle L0's own hit-latency leaves the backing
+// port idle. By the time the demand stream reaches L1, some of its
+// fetch time is already paid for — a PARTIAL hit, cheaper than a cold
+// miss (test 11 in the redesign plan).
+TEST(Cache, PrefetchTurnsNextLineIntoPartialHit) {
+    FlatMem imem(BASE, SZ, DRAM_LAT);
+    Cache   ic(imem, LINE, SETS, HIT_LAT, /*ways=*/1,
+              /*prefetch_enabled=*/true, /*degree=*/1);
+
+    const uint32_t L0 = A, L1 = A + LINE;
+
+    EXPECT_EQ(access_cycles(ic, L0), DRAM_LAT + HIT_LAT);  // cold miss
+    EXPECT_LT(access_cycles(ic, L1), DRAM_LAT + HIT_LAT);  // partial
+    EXPECT_FALSE(ic.last_was_hit());  // was in flight, not resident
+}
+
+// With prefetch off, the same walk pays a full miss on every line —
+// the counterfactual that makes the test above meaningful.
+TEST(Cache, WithoutPrefetchNextLineIsAFullMiss) {
+    FlatMem imem(BASE, SZ, DRAM_LAT);
+    Cache   ic(imem, LINE, SETS, HIT_LAT, /*ways=*/1);
+
+    const uint32_t L0 = A, L1 = A + LINE;
+
+    EXPECT_EQ(access_cycles(ic, L0), DRAM_LAT + HIT_LAT);
+    EXPECT_EQ(access_cycles(ic, L1), DRAM_LAT + HIT_LAT);  // full miss
+}
+
+// Prefetching never changes committed data (Option A: data always
+// lives in the backing). Walk several sequential lines — enough to
+// exercise chaining (degree=2) and eviction of an unused prefetch —
+// and confirm every value the cache returns still matches the backing
+// exactly (test 12 in the redesign plan).
+TEST(Cache, PrefetchNeverChangesCommittedData) {
+    FlatMem imem(BASE, SZ, DRAM_LAT);
+    Cache   ic(imem, LINE, SETS, HIT_LAT, /*ways=*/1,
+              /*prefetch_enabled=*/true, /*degree=*/2);
+
+    const uint32_t stride = LINE;
+    for (int i = 0; i < 4; ++i)
+        imem.write_bytes(A + i * stride,
+                         reinterpret_cast<const uint8_t*>(&i), sizeof(i));
+
+    for (int i = 0; i < 4; ++i) access_cycles(ic, A + i * stride);
+
+    for (int i = 0; i < 4; ++i)
+        EXPECT_EQ(ic.load_word(A + i * stride),
+                 imem.load_word(A + i * stride));
+}

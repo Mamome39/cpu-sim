@@ -13,7 +13,10 @@ Core::Core(const SimConfig& cfg)
               ? std::make_unique<Cache>(imem_, cfg.icache_line_bytes,
                                         cfg.icache_sets,
                                         cfg.icache_hit_latency_cycles,
-                                        cfg.icache_ways)
+                                        cfg.icache_ways,
+                                        cfg.icache_prefetch_enabled,
+                                        cfg.icache_prefetch_degree,
+                                        &stats_)
               : nullptr)
     , iport_(icache_ ? static_cast<IMemory&>(*icache_) : imem_)
     , dram_(cfg.ram_base_addr, cfg.ram_size_bytes, cfg.dmem_latency_cycles)

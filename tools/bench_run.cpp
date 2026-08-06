@@ -14,6 +14,7 @@ int main(int argc, char* argv[]) {
             "usage: bench_run [--trace=<file>] [--cycles=<file>] "
             "[--mem-latency=<n>] [--dcache] [--dcache-ways=<n>] "
             "[--imem-latency=<n>] [--icache] [--icache-ways=<n>] "
+            "[--iprefetch] [--iprefetch-degree=<n>] "
             "[--bpred] <elf> [max_cycles]\n");
         return 1;
     }
@@ -28,6 +29,8 @@ int main(int argc, char* argv[]) {
     unsigned    imem_latency = 1;         // instruction-memory serve latency
     bool        icache       = false;     // enable the L1 I-cache
     unsigned    icache_ways  = 1;         // I-cache associativity
+    bool        iprefetch        = false; // enable I-cache prefetch
+    unsigned    iprefetch_degree = 1;     // prefetch chain length
     bool        bpred        = false;     // enable the branch predictor
 
     for (int i = 1; i < argc; ++i) {
@@ -51,6 +54,11 @@ int main(int argc, char* argv[]) {
         } else if (std::strncmp(argv[i], "--icache-ways=", 14) == 0) {
             icache_ways = static_cast<unsigned>(
                 std::strtoul(argv[i] + 14, nullptr, 10));
+        } else if (std::strcmp(argv[i], "--iprefetch") == 0) {
+            iprefetch = true;
+        } else if (std::strncmp(argv[i], "--iprefetch-degree=", 19) == 0) {
+            iprefetch_degree = static_cast<unsigned>(
+                std::strtoul(argv[i] + 19, nullptr, 10));
         } else if (std::strcmp(argv[i], "--bpred") == 0) {
             bpred = true;
         } else if (elf_path == nullptr) {
@@ -72,6 +80,8 @@ int main(int argc, char* argv[]) {
     cfg.imem_latency_cycles = imem_latency;  // becomes the I-miss penalty
     cfg.icache_enabled      = icache;
     cfg.icache_ways         = icache_ways;
+    cfg.icache_prefetch_enabled = iprefetch;
+    cfg.icache_prefetch_degree  = iprefetch_degree;
     cfg.bpred_enabled       = bpred;
 
     try {
@@ -117,6 +127,9 @@ int main(int argc, char* argv[]) {
         std::printf("icache:    %s", icache ? "on" : "off");
         if (icache) std::printf(" (%u-way)", icache_ways);
         std::printf("\n");
+        std::printf("iprefetch: %s", iprefetch ? "on" : "off");
+        if (iprefetch) std::printf(" (degree %u)", iprefetch_degree);
+        std::printf("\n");
         std::printf("bpred:     %s\n", bpred ? "on" : "off");
         const cpusim::SimStats& s = core.stats();
         unsigned long long correct = s.branch_correct;
@@ -125,6 +138,12 @@ int main(int argc, char* argv[]) {
         std::printf("branches:  %llu\n", total);
         std::printf("correct:   %llu\n", correct);
         std::printf("mispred:   %llu\n", mispred);
+        if (iprefetch)
+            std::printf("pf useful/useless: %llu/%llu\n",
+                        static_cast<unsigned long long>(
+                            s.icache_prefetch_useful),
+                        static_cast<unsigned long long>(
+                            s.icache_prefetch_useless));
         if (total)
             std::printf("accuracy:  %.2f%%\n",
                         100.0 * static_cast<double>(correct) / total);

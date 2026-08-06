@@ -85,6 +85,10 @@ add_executable(tree_plru_test tests/unit/tree_plru_test.cpp)
 target_link_libraries(tree_plru_test PRIVATE cpusim_mem GTest::gtest_main)
 gtest_discover_tests(tree_plru_test)
 
+add_executable(sequential_prefetch_test tests/unit/sequential_prefetch_test.cpp)
+target_link_libraries(sequential_prefetch_test PRIVATE cpusim_mem GTest::gtest_main)
+gtest_discover_tests(sequential_prefetch_test)
+
 add_executable(fetch_test tests/unit/fetch_test.cpp)
 target_link_libraries(fetch_test PRIVATE cpusim_uarch GTest::gtest_main)
 gtest_discover_tests(fetch_test)
