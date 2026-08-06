@@ -192,3 +192,30 @@ if(RISCV_GCC)
 else()
     message(STATUS "riscv64-unknown-elf-gcc not found — benchmarks disabled")
 endif()
+
+# ── rv32ui ISA conformance tests (requires toolchain + spike) ─────────────────
+# The vendored riscv-tests suite (tests/isa/). Unlike the unit tests these
+# assemble real ELFs and diff our commit trace against Spike's, so they need
+# both the cross toolchain and a reference simulator; skipped when either is
+# missing. See tests/isa/README.md.
+#
+# CMAKE_FIND_APPBUNDLE=NEVER matters on macOS: by default find_program
+# searches .app bundles first and happily matches an unrelated
+# /Applications/spike.app instead of the RISC-V simulator on PATH.
+set(_saved_find_appbundle ${CMAKE_FIND_APPBUNDLE})
+set(CMAKE_FIND_APPBUNDLE NEVER)
+find_program(SPIKE spike)
+set(CMAKE_FIND_APPBUNDLE ${_saved_find_appbundle})
+
+if(RISCV_GCC AND SPIKE)
+    add_test(
+        NAME rv32ui
+        COMMAND ${CMAKE_SOURCE_DIR}/tools/run_isa_tests.sh ${CMAKE_BINARY_DIR}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    # Whole suite is ~40 spike+sim runs; the script caps each one itself.
+    set_tests_properties(rv32ui PROPERTIES TIMEOUT 900)
+    message(STATUS "spike found: ${SPIKE} — rv32ui ISA tests enabled")
+else()
+    message(STATUS "spike or RISC-V toolchain missing — rv32ui ISA tests disabled")
+endif()

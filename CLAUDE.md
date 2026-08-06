@@ -50,6 +50,14 @@ Diff-test against Spike (requires `spike` and a built `bench_run`):
 tools/spike_diff.sh <elf> [build_dir]
 ```
 
+Run the vendored rv32ui ISA conformance suite (same requirements, plus
+`riscv64-unknown-elf-gcc`). Also runs under `ctest` as the `rv32ui`
+test when those tools are present:
+```sh
+tools/run_isa_tests.sh                    # whole suite
+tools/run_isa_tests.sh build add sll      # named tests only
+```
+
 Benchmarks (`benchmarks/*.c`) only build if `riscv64-unknown-elf-gcc`
 is on `PATH`; CMake silently skips the `benchmarks` target otherwise.
 
@@ -94,13 +102,18 @@ Layout:
   trace), `ElfLoader`, `SimConfig` (every tunable knob), `SimStats`
   (branch correct/mispredict counter).
 - `tests/unit/` — one file per component; `tests/integration/` — full
-  `Core`/pipeline/trace tests.
+  `Core`/pipeline/trace tests; `tests/isa/` — the official riscv-tests
+  rv32ui suite, vendored. Everything outside `tests/isa/env/` is
+  byte-identical to upstream and must not be edited; `env/` is our
+  CSR-free replacement for riscv-test-env. See
+  [tests/isa/README.md](tests/isa/README.md).
 - `benchmarks/` — bare-metal RV32I C programs (`-nostdlib
   -nostartfiles`, linked at `0x80000000` via `benchmarks/link.ld`,
   entered through `benchmarks/start.S`) used for Spike diff-testing
   and the performance report.
 - `tools/spike_diff.sh` — commit-trace diff against Spike;
-  `tools/bench_run.cpp` — the benchmark/perf-mode CLI driver.
+  `tools/run_isa_tests.sh` — builds and runs the rv32ui suite through
+  that diff; `tools/bench_run.cpp` — the benchmark/perf-mode CLI driver.
 
 Two operating modes, both driven by `Core`/`SimConfig` (see
 [docs/simulation.md](docs/simulation.md)):

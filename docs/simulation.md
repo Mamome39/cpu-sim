@@ -225,3 +225,37 @@ spike trace: 16652 lines
 
 PASS — traces match
 ```
+
+---
+
+## ISA conformance — the rv32ui suite
+
+The C benchmarks above exercise whatever the compiler happens to emit,
+which is a narrow slice of the ISA: before the suite landed, **16 of 39
+RV32I instructions never executed in any benchmark** (all of `SLL`/`SRL`/
+`SRA`, all set-less-than, both unsigned branches, most sub-word memory,
+and `FENCE`).
+
+`tests/isa/` vendors the official [riscv-tests][rt] rv32ui suite to close
+that gap — one test per instruction, checking value corner cases, sign
+extension, `x0` as source and destination, and producer→consumer bypass
+at 0, 1, and 2 nop spacing. That last group walks the forwarding paths in
+[hazard-forwarding.md](hazard-forwarding.md) one hazard distance at a time.
+
+```bash
+tools/run_isa_tests.sh                    # whole suite
+tools/run_isa_tests.sh build add sll      # named tests only
+```
+
+Each test is checked twice: Spike runs it standalone (do its own
+assertions hold?), then `spike_diff.sh` compares our commit trace against
+Spike's line for line. `ctest` runs the whole suite as the `rv32ui` test
+when both `spike` and the cross toolchain are present, and skips it
+otherwise.
+
+40 of the 42 tests run; `fence_i` and `ma_data` are excluded for reasons
+that are properties of the environment rather than the simulator. See
+[../tests/isa/README.md](../tests/isa/README.md) for the exclusions, the
+vendoring layout, and what our CSR-free `env/` replaces.
+
+[rt]: https://github.com/riscv-software-src/riscv-tests
