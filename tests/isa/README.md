@@ -77,11 +77,20 @@ expects, so the script only places the section.
 
 One non-obvious detail: `RVTEST_CODE_BEGIN` ends with an explicit
 `j 1f`. The prologue assembles into `.text.init` and the test body
-into `.text`, and alignment padding can leave a gap between the two
-sections. Upstream crosses that gap with `mret`; falling through
-instead executes the padding. This is not theoretical — it is exactly
-what went wrong when this was first written, and it silently *worked*
-for four tests whose sections happened to land adjacent.
+into `.text`; upstream crosses between them with `mret`, and dropping
+that in favour of falling through is wrong, because the linker places
+`.text` at *its own* required alignment rather than immediately after
+`.text.init`.
+
+This is not theoretical — it is what went wrong when this was first
+written, and the failure mode is worth knowing because of how narrow
+it is. Exactly one test in the suite exposes it: `auipc` is the only
+one whose body contains `.align 3`, which raises `.text`'s alignment
+to 8, which pushes it from `0x800000c4` to `0x800000c8` and leaves a
+4-byte hole. In the other 40 tests `.text` needs only 4-byte
+alignment, lands flush against `.text.init`, and fall-through happens
+to work. So a broken prologue here does not look broken — it looks
+like one oddly failing instruction test.
 
 ## Excluded tests
 
