@@ -78,9 +78,19 @@ bool Core::tick() {
     const pipeline::MemWb& wb_in = mem_wb_.read();
     if (tracer_) tracer_->record(wb_in, stats_.cycles);
 
-    // Detect EBREAK reaching WB before any latch commits.
-    if (wb_in.valid && wb_in.op == rv32i::Op::EBREAK)
-        halted_ = true;
+    // Detect a halting instruction reaching WB before any latch
+    // commits. Checking at WB rather than at decode is what makes this
+    // speculation-safe: a wrong-path instruction is flushed before it
+    // ever arrives here, so garbage fetched past a mispredicted branch
+    // cannot stop the machine.
+    if (wb_in.valid && (wb_in.op == rv32i::Op::EBREAK ||
+                        wb_in.op == rv32i::Op::ILLEGAL)) {
+        halted_      = true;
+        halt_reason_ = wb_in.op == rv32i::Op::EBREAK ? HaltReason::Ebreak
+                                                     : HaltReason::Illegal;
+        halt_pc_     = wb_in.pc;
+        halt_raw_    = wb_in.raw;
+    }
 
     // WB drains on both paths below, so a valid instruction at the
     // MEM/WB input retires this cycle either way. A MEM stall pushes

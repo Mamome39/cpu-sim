@@ -22,16 +22,33 @@
 
 namespace cpusim {
 
+// Why the Core stopped. Both halt conditions are detected at the same
+// point — an instruction retiring through WB — so neither can be
+// triggered by a speculative instruction that a branch flush kills.
+enum class HaltReason : uint8_t {
+    None,     // still running
+    Ebreak,   // EBREAK retired — the normal program exit
+    Illegal,  // an illegal instruction retired — a bug, not an exit
+};
+
 // Core — wires the 5-stage pipeline and drives the clock.
 //
 // tick():  one clock cycle (evaluate all stages, then latch all).
-//          Sets halted_ when EBREAK reaches the WB stage.
+//          Sets halted_ when EBREAK or an illegal instruction
+//          reaches the WB stage.
 //
 // run():   loops tick() until halted or max_cycles is reached.
 //
 // Halt condition: EBREAK retires through WB. The Core detects this
 // by peeking at mem_wb_ before latch, consistent with single-cycle
 // semantics (EBREAK is visible at WB input during that cycle).
+//
+// An illegal instruction halts the same way. Real hardware would trap;
+// with no CSRs there is no trap vector to take, and continuing is
+// worse than stopping — silently retiring an undefined encoding as a
+// no-op lets a program run through garbage and still report success.
+// halt_reason() distinguishes the two, and halt_pc()/halt_raw() say
+// which encoding was at fault.
 //
 // imem and dmem share the same base address and size but are
 // independent backing stores — Harvard-style within the sim.
@@ -65,6 +82,13 @@ public:
     uint64_t cycles() const { return stats_.cycles; }
     uint64_t instructions() const { return stats_.instructions; }
     bool     halted() const { return halted_; }
+
+    // Why the run stopped, and the instruction responsible. Only
+    // meaningful once halted(); halt_pc()/halt_raw() are set for both
+    // reasons, but matter mainly for HaltReason::Illegal.
+    HaltReason halt_reason() const { return halt_reason_; }
+    uint32_t   halt_pc()     const { return halt_pc_; }
+    uint32_t   halt_raw()    const { return halt_raw_; }
     uint64_t mispredicts() const { return stats_.branch_mispredicts; }
     const SimStats& stats() const { return stats_; }
 
@@ -109,6 +133,10 @@ private:
 
     Tracer*  tracer_  = nullptr;
     bool     halted_  = false;
+
+    HaltReason halt_reason_ = HaltReason::None;
+    uint32_t   halt_pc_     = 0;
+    uint32_t   halt_raw_    = 0;
 };
 
 }  // namespace cpusim

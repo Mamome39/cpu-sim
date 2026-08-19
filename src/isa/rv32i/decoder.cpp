@@ -123,11 +123,22 @@ Instruction decode(uint32_t raw, uint32_t pc) {
         break;
 
     case OPC_MISC_MEM:
+        // FENCE is funct3=000. FENCE.I (funct3=001) belongs to
+        // Zifencei, which we do not implement — without this check it
+        // would silently decode as a plain FENCE.
+        if (f3 != 0b000) break;
         insn.op  = Op::FENCE;
         insn.rd  = 0; insn.rs1 = 0; insn.rs2 = 0; insn.imm = 0;
         break;
 
     case OPC_SYSTEM:
+        // ECALL/EBREAK are funct3=000; every Zicsr instruction has a
+        // nonzero funct3. Without this check a CSR access happens to
+        // collide whenever its CSR number is 0x000 or 0x001, since
+        // those are also the funct12 values of ECALL and EBREAK —
+        // e.g. `csrrw x1, 0x001, x2` would decode as EBREAK and halt
+        // the machine.
+        if (f3 != 0b000) break;
         insn.rd  = 0; insn.rs1 = 0; insn.rs2 = 0; insn.imm = 0;
         switch (funct12(raw)) {
         case F12_ECALL:  insn.op = Op::ECALL;  break;

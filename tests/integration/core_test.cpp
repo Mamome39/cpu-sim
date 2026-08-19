@@ -223,3 +223,59 @@ TEST(Core, MaxCyclesCaps) {
     EXPECT_EQ(c.cycles(), 3u);
     EXPECT_FALSE(c.halted());
 }
+
+// ── Illegal instruction halts the machine ────────────────────────────────────
+// Before this, Op::ILLEGAL was only listed as "writes no register", so
+// an undefined encoding retired as a silent no-op and the run reported
+// a clean halt. A program could execute garbage and still look fine.
+
+TEST(Core, IllegalInstructionHalts) {
+    Core c(cfg());
+    c.load_program({
+        0x00100093u,   // addi x1, x0, 1
+        0x00000000u,   // not a valid encoding
+        0x00200113u,   // addi x2, x0, 2  — must never execute
+        0x00100073u,   // ebreak
+    });
+    c.run(200);
+
+    EXPECT_TRUE(c.halted());
+    EXPECT_EQ(c.halt_reason(), HaltReason::Illegal);
+    EXPECT_EQ(c.halt_raw(), 0x00000000u);
+    EXPECT_EQ(c.halt_pc(),  BASE + 4);
+    EXPECT_EQ(c.read_reg(1), 1u);   // the instruction before it retired
+    EXPECT_EQ(c.read_reg(2), 0u);   // the one after it did not
+}
+
+TEST(Core, EbreakHaltReasonIsEbreak) {
+    Core c(cfg());
+    c.load_program({0x00100093u, 0x00100073u});
+    c.run(200);
+
+    EXPECT_TRUE(c.halted());
+    EXPECT_EQ(c.halt_reason(), HaltReason::Ebreak);
+    EXPECT_EQ(c.halt_pc(), BASE + 4);
+}
+
+TEST(Core, IllegalOnWrongPathDoesNotHalt) {
+    // The check lives at WB, so an illegal encoding fetched past a
+    // TAKEN branch is flushed before it can retire. Without that,
+    // speculative garbage would stop the machine.
+    //
+    // Fetch runs ahead into 0x8000_0008/000c while the branch is still
+    // resolving; both are illegal, and both must be squashed.
+    Core c(cfg());
+    c.load_program({
+        0x00000093u,   // addi x1, x0, 0
+        0x00008663u,   // beq  x1, x0, +12 -> taken, skips the illegals
+        0x00000000u,   // illegal, wrong path only
+        0x00000000u,   // illegal, wrong path only
+        0x00300213u,   // addi x4, x0, 3   <- branch target
+        0x00100073u,   // ebreak
+    });
+    c.run(200);
+
+    EXPECT_TRUE(c.halted());
+    EXPECT_EQ(c.halt_reason(), HaltReason::Ebreak);  // not Illegal
+    EXPECT_EQ(c.read_reg(4), 3u);                    // target ran
+}

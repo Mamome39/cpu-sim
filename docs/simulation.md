@@ -22,10 +22,28 @@ core.store_word(0x80000000, 42u); // pre-load dmem
 ### Running
 
 ```cpp
-core.run();           // run until EBREAK retires (no cycle limit)
-core.run(100'000);    // run until EBREAK or 100 000 cycles
+core.run();           // run until the core halts (no cycle limit)
+core.run(100'000);    // run until it halts or 100 000 cycles elapse
 core.tick();          // single clock step; returns false when halted
 ```
+
+Two things halt the core, both detected at the same point — an instruction
+retiring through WB:
+
+| `halt_reason()` | Cause |
+|---|---|
+| `HaltReason::Ebreak` | `EBREAK` retired — the normal program exit |
+| `HaltReason::Illegal` | An illegal encoding retired — a bug, not an exit |
+
+Detecting at WB rather than at decode is what makes this speculation-safe:
+an illegal encoding fetched past a mispredicted branch is flushed before it
+can retire, so wrong-path garbage cannot stop the machine.
+
+Real hardware would trap on an illegal instruction. With no CSRs there is no
+trap vector to take, and halting beats continuing — before this, `Op::ILLEGAL`
+was only marked "writes no register", so an undefined encoding retired as a
+silent no-op and a program could execute garbage and still report a clean
+halt. `bench_run` prints the offending pc and encoding and exits 3.
 
 `max_cycles` defaults to `~0ULL` (effectively unlimited). It is a hard cap
 on `SimStats::cycles`, not a wall-clock timeout — useful for guarding against
@@ -39,7 +57,10 @@ core.load_word(addr); // dmem read-back
 core.pc();            // current fetch PC
 core.cycles();        // total clock cycles elapsed
 core.instructions();  // total instructions retired through WB
-core.halted();        // true once EBREAK has retired
+core.halted();        // true once EBREAK or an illegal insn retired
+core.halt_reason();   // HaltReason::Ebreak | Illegal | None
+core.halt_pc();       // pc of the instruction that halted the run
+core.halt_raw();      // its raw encoding
 core.stats();         // SimStats — cycles, retired insts, branch counts
 core.mispredicts();   // shorthand for stats().branch_mispredicts
 core.read_regs();     // print all 32 registers to stdout (two-column)

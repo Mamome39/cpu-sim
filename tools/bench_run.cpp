@@ -147,8 +147,13 @@ int main(int argc, char* argv[]) {
         if (total)
             std::printf("accuracy:  %.2f%%\n",
                         100.0 * static_cast<double>(correct) / total);
-        std::printf("halted:    %s\n",
-                    core.halted() ? "yes" : "no (cycle limit)");
+        const bool illegal = core.halt_reason() == cpusim::HaltReason::Illegal;
+        if (illegal)
+            std::printf("halted:    ILLEGAL INSTRUCTION 0x%08x at pc "
+                        "0x%08x\n", core.halt_raw(), core.halt_pc());
+        else
+            std::printf("halted:    %s\n",
+                        core.halted() ? "yes" : "no (cycle limit)");
         std::printf("cycles:    %llu\n",
                     static_cast<unsigned long long>(s.cycles));
         std::printf("insts:     %llu\n",
@@ -162,6 +167,10 @@ int main(int argc, char* argv[]) {
         std::printf("\n");
         core.read_regs();
 
+        // An illegal instruction is a failed run, not a completed one —
+        // exit nonzero so spike_diff.sh and run_isa_tests.sh surface it
+        // instead of diffing a trace that ends in garbage.
+        if (illegal) return 3;
         return core.halted() ? 0 : 1;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());

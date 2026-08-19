@@ -292,3 +292,52 @@ TEST(Decoder, OpName) {
     EXPECT_STREQ(op_name(Op::JAL),     "jal");
     EXPECT_STREQ(op_name(Op::ILLEGAL), "ILLEGAL");
 }
+
+// ── Decoder — extensions we deliberately reject ───────────────────────────────
+// The decoder's ILLEGAL is a default that any matching case overwrites,
+// so "rejected" means no case matched. These pin the cases where a
+// near-miss encoding used to slip through and decode as the wrong
+// instruction.
+
+TEST(Decoder, FenceIIsIllegal) {
+    // FENCE.I (Zifencei) shares MISC_MEM with FENCE, differing only in
+    // funct3=001. Without a funct3 check it decoded as a plain FENCE.
+    EXPECT_EQ(decode(0x0000100Fu).op, Op::ILLEGAL);
+    EXPECT_EQ(decode(0x0000000Fu).op, Op::FENCE);  // real FENCE still ok
+}
+
+TEST(Decoder, CsrAccessIsIllegal) {
+    // Zicsr shares the SYSTEM opcode with ECALL/EBREAK. ECALL/EBREAK
+    // are funct12 0x000/0x001, so a CSR access naming CSR 0x000 or
+    // 0x001 collides on funct12 and is separable only by funct3 —
+    // csrrw x1,0x001,x2 used to decode as EBREAK and halt the machine.
+    EXPECT_EQ(decode(0x001110F3u).op, Op::ILLEGAL);  // csrrw x1,0x001,x2
+    EXPECT_EQ(decode(0x000120F3u).op, Op::ILLEGAL);  // csrrs x1,0x000,x2
+    EXPECT_EQ(decode(0x305110F3u).op, Op::ILLEGAL);  // csrrw x1,mtvec,x2
+}
+
+TEST(Decoder, EcallEbreakStillDecode) {
+    EXPECT_EQ(decode(0x00000073u).op, Op::ECALL);
+    EXPECT_EQ(decode(0x00100073u).op, Op::EBREAK);
+}
+
+TEST(Decoder, MExtensionIsIllegal) {
+    // mul/div share the OP opcode with add/sub and are separated only
+    // by funct7=0b0000001, which matches neither F7_BASE nor F7_ALT.
+    EXPECT_EQ(decode(0x023100B3u).op, Op::ILLEGAL);  // mul  x1,x2,x3
+    EXPECT_EQ(decode(0x0231C0B3u).op, Op::ILLEGAL);  // div  x1,x2,x3
+}
+
+TEST(Decoder, CompressedAndZeroWordAreIllegal) {
+    // op[1:0] != 0b11 marks a 16-bit compressed encoding (RVC).
+    EXPECT_EQ(decode(0x00000001u).op, Op::ILLEGAL);
+    // The all-zero word: not a valid encoding, and what an unallocated
+    // gap between linker sections reads as.
+    EXPECT_EQ(decode(0x00000000u).op, Op::ILLEGAL);
+    EXPECT_EQ(decode(0xFFFFFFFFu).op, Op::ILLEGAL);
+}
+
+TEST(Decoder, ReservedBranchFunct3IsIllegal) {
+    EXPECT_EQ(decode(0x63u | (0b010u << 12)).op, Op::ILLEGAL);
+    EXPECT_EQ(decode(0x63u | (0b011u << 12)).op, Op::ILLEGAL);
+}
