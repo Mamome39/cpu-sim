@@ -49,7 +49,7 @@ All tests should pass. To run a specific suite:
 | 4b | Performance mode — `SimConfig` latency knobs + `SimStats` report | Done ✅ |
 | 5 | L1 D-cache — direct-mapped, write-allocate, timing overlay | Done ✅ |
 | 5b | L1 caches — set-associative (tree-PLRU) + write-back timing, I-cache with front-end stall | Done ✅ |
-| 5c | Instruction prefetch (next-line + overlapped engine) | Not started |
+| 5c | Instruction prefetch (next-line + overlapped engine) | Done ✅ |
 | 6 | L2 unified cache | Not started |
 | 7 | Branch predictor — BTB + bimodal (2-bit) | Done ✅ |
 | 7b | gshare upgrade (global history) | Not started |
