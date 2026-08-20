@@ -6,27 +6,49 @@
 
 namespace cpusim {
 
+// Each level's backing is the next one down, so the whole hierarchy is
+// picked here by what is enabled: an L1's backing is its L2 port if the
+// L2 is on, else its own data authority; a stage's port is its L1 if
+// that is on, else whatever the L1 would have talked to. Every one of
+// these is an IMemory&, so the pipeline never learns the difference.
 Core::Core(const SimConfig& cfg)
     : base_(cfg.ram_base_addr)
     , imem_(cfg.ram_base_addr, cfg.ram_size_bytes, cfg.imem_latency_cycles)
-    , icache_(cfg.icache_enabled
-              ? std::make_unique<Cache>(imem_, cfg.icache_line_bytes,
-                                        cfg.icache_sets,
-                                        cfg.icache_hit_latency_cycles,
-                                        cfg.icache_ways,
-                                        cfg.icache_prefetch_enabled,
-                                        cfg.icache_prefetch_degree,
-                                        &stats_)
-              : nullptr)
-    , iport_(icache_ ? static_cast<IMemory&>(*icache_) : imem_)
     , dram_(cfg.ram_base_addr, cfg.ram_size_bytes, cfg.dmem_latency_cycles)
-    , dcache_(cfg.dcache_enabled
-              ? std::make_unique<Cache>(dram_, cfg.dcache_line_bytes,
-                                        cfg.dcache_sets,
-                                        cfg.dcache_hit_latency_cycles,
-                                        cfg.dcache_ways)
+    , l2_(cfg.l2_enabled
+          ? std::make_unique<UnifiedL2>(dram_, stats_.cycles,
+                                        cfg.l2_line_bytes, cfg.l2_sets,
+                                        cfg.l2_hit_latency_cycles,
+                                        cfg.l2_ways)
+          : nullptr)
+    // The port routes data to this side's own authority and only
+    // timing to the shared L2 — which is why enabling the L2 cannot
+    // move a committed value. See unified_l2.h.
+    , il2_(l2_ ? &l2_->attach(imem_) : nullptr)
+    , dl2_(l2_ ? &l2_->attach(dram_) : nullptr)
+    , icache_(cfg.icache_enabled
+              ? std::make_unique<Cache>(
+                    il2_ ? static_cast<IMemory&>(*il2_) : imem_,
+                    cfg.icache_line_bytes,
+                    cfg.icache_sets,
+                    cfg.icache_hit_latency_cycles,
+                    cfg.icache_ways,
+                    cfg.icache_prefetch_enabled,
+                    cfg.icache_prefetch_degree,
+                    &stats_)
               : nullptr)
-    , dmem_(dcache_ ? static_cast<IMemory&>(*dcache_) : dram_)
+    , iport_(icache_ ? static_cast<IMemory&>(*icache_)
+                     : (il2_ ? static_cast<IMemory&>(*il2_) : imem_))
+    , dcache_(cfg.dcache_enabled
+              ? std::make_unique<Cache>(
+                    dl2_ ? static_cast<IMemory&>(*dl2_) : dram_,
+                    cfg.dcache_line_bytes,
+                    cfg.dcache_sets,
+                    cfg.dcache_hit_latency_cycles,
+                    cfg.dcache_ways)
+              : nullptr)
+    , dmem_(dcache_ ? static_cast<IMemory&>(*dcache_)
+                    : (dl2_ ? static_cast<IMemory&>(*dl2_) : dram_))
     , bpred_(cfg.bpred_enabled
              ? std::make_unique<BranchPredictor>(cfg.bpred_bht_entries,
                                                  cfg.bpred_btb_entries)

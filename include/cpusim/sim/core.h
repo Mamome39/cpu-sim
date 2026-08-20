@@ -4,6 +4,7 @@
 #include <vector>
 #include "cpusim/memory/flat_mem.h"
 #include "cpusim/memory/cache.h"
+#include "cpusim/memory/unified_l2.h"
 #include "cpusim/uarch/branch_predictor.h"
 #include "cpusim/regfile.h"
 #include "cpusim/uarch/latch.h"
@@ -92,6 +93,10 @@ public:
     uint64_t mispredicts() const { return stats_.branch_mispredicts; }
     const SimStats& stats() const { return stats_; }
 
+    // The shared L2, or nullptr when disabled — for its hit/miss
+    // counts. Kept off SimStats because a level owns its own counters.
+    const UnifiedL2* l2() const { return l2_.get(); }
+
     // Print all 32 registers to stdout in two-column format.
     void read_regs() const;
 
@@ -105,17 +110,27 @@ private:
     // window is not lost before the stall clears.
     void capture_ex_operands();
 
+    // Declared first: the memory hierarchy binds to stats_.cycles as
+    // the clock a shared level arbitrates on (see unified_l2.h), so it
+    // has to exist before any of it is built.
+    SimStats stats_;                 // probed by the pipeline
+
     uint32_t base_;
 
-    FlatMem imem_;
+    // Built inner-to-outer, so every IMemory& binds to a level that is
+    // already constructed: the two data authorities, then the shared
+    // L2 and its per-side ports, then the L1s, then each stage's port.
+    FlatMem imem_;                   // instruction-side data authority
+    FlatMem dram_;                   // data-side authority + last level
+    std::unique_ptr<UnifiedL2> l2_;  // shared L2; null unless enabled
+    L2Port*  il2_;                   // I-side L2 port; null with no L2
+    L2Port*  dl2_;                   // D-side L2 port; null with no L2
     std::unique_ptr<Cache> icache_;  // L1 I-cache; null unless enabled
-    IMemory& iport_;                 // fetch's port: icache_ or imem_
-    FlatMem dram_;                   // backing data memory (last level)
+    IMemory& iport_;                 // fetch's port: icache_/L2/imem_
     std::unique_ptr<Cache> dcache_;  // L1 D-cache; null unless enabled
-    IMemory& dmem_;                  // MEM's port: dcache_ or dram_
+    IMemory& dmem_;                  // MEM's port: dcache_/L2/dram_
     RegFile rf_;
     std::unique_ptr<BranchPredictor> bpred_;  // null unless enabled
-    SimStats stats_;                          // probed by the pipeline
 
     Latch<pipeline::IfId>  if_id_;
     Latch<pipeline::IdEx>  id_ex_;

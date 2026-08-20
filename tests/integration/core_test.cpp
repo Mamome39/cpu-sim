@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <utility>
+#include <vector>
 #include "cpusim/sim/core.h"
 
 using namespace cpusim;
@@ -278,4 +279,116 @@ TEST(Core, IllegalOnWrongPathDoesNotHalt) {
     EXPECT_TRUE(c.halted());
     EXPECT_EQ(c.halt_reason(), HaltReason::Ebreak);  // not Illegal
     EXPECT_EQ(c.read_reg(4), 3u);                    // target ran
+}
+
+// ── L2 unified cache ─────────────────────────────────────────────────────────
+
+// Both L1s tiny enough that even a short program thrashes them (2 sets
+// x 8 B = 16 B, so the instruction stream alone cycles through them
+// several times over), with the L2 roomy enough to catch what spills.
+// Slow DRAM makes the three tiers visible in the cycle count.
+static SimConfig l2_cfg(bool l2_on) {
+    SimConfig c = cfg();
+    c.dmem_latency_cycles   = 40;
+    c.imem_latency_cycles   = 40;
+    c.dcache_enabled        = true;
+    c.dcache_line_bytes     = 8;
+    c.dcache_sets           = 2;
+    c.icache_enabled        = true;
+    c.icache_line_bytes     = 8;
+    c.icache_sets           = 2;
+    c.l2_enabled            = l2_on;
+    c.l2_line_bytes         = 8;
+    c.l2_sets               = 64;
+    c.l2_hit_latency_cycles = 5;
+    return c;
+}
+
+// A short loop, which is what gives the L2 something to catch: the
+// body spans 32 B of instructions against 16 B of L1 I-cache, so every
+// trip around evicts the lines the next trip needs. Those are capacity
+// misses, not compulsory ones — exactly the traffic a second level
+// exists to absorb. x1 = BASE and x6 = trip count come from the
+// caller; the body also stores and re-reads so both sides see traffic.
+//
+// idx1 is the loop head (BASE+4) and idx8 branches back to it.
+static constexpr uint32_t ADDI_X6_M1  = 0xFFF30313u;  // addi x6, x6, -1
+static constexpr uint32_t BNE_X6_LOOP = 0xFE0312E3u;  // bne x6, x0, -28
+
+static std::vector<uint32_t> l2_program() {
+    return {
+        ADDI_X3_42,     // x3 = 42
+        SW_X3_0_X1,     // mem[BASE] = 42     <- loop head, BASE+4
+        NOP, NOP,
+        LW_X5_0_X1,     // x5 = mem[BASE]
+        NOP, NOP,
+        ADDI_X6_M1,     // x6 -= 1
+        BNE_X6_LOOP,    // back to the loop head while x6 != 0
+        EBREAK,
+        NOP, NOP, NOP, NOP,
+    };
+}
+
+// Run l2_program with the L2 on or off; return what it committed.
+static std::pair<uint32_t, uint32_t> l2_run(bool l2_on, uint64_t* cycles,
+                                            uint64_t* insts) {
+    Core c(l2_cfg(l2_on));
+    c.write_reg(1, BASE);
+    c.write_reg(6, 8);           // trip count
+    c.load_program(l2_program());
+    c.run(100000);
+    EXPECT_TRUE(c.halted());
+    if (cycles) *cycles = c.cycles();
+    if (insts)  *insts  = c.instructions();
+    return {c.read_reg(5), c.read_reg(6)};
+}
+
+// The guarantee the whole timing study rests on: the L2 is a timing
+// overlay with no data of its own, so turning it on moves cycles and
+// nothing else. Its ports route data to each side's own authority
+// (unified_l2.h), which makes this structural rather than lucky.
+TEST(Core, L2NeverChangesCommittedResults) {
+    uint64_t off_insts = 0, on_insts = 0;
+    auto off = l2_run(false, nullptr, &off_insts);
+    auto on  = l2_run(true,  nullptr, &on_insts);
+
+    EXPECT_EQ(on, off);
+    EXPECT_EQ(on.first,  42u);         // the program really did run
+    EXPECT_EQ(on.second, 0u);          // ...all 8 trips of it
+    EXPECT_EQ(on_insts, off_insts);    // stalls move, retirements do not
+}
+
+// What the L2 is for: L1 misses that would each have walked to DRAM
+// are absorbed by the middle tier instead, so the same program halts
+// in strictly fewer cycles.
+TEST(Core, L2AbsorbsL1MissesAndSavesCycles) {
+    uint64_t off_cycles = 0, on_cycles = 0;
+    l2_run(false, &off_cycles, nullptr);
+    l2_run(true,  &on_cycles,  nullptr);
+
+    EXPECT_LT(on_cycles, off_cycles);
+}
+
+// "Unified" at the Core level: one tag array behind both L1s, so the
+// instruction and data sides land in the same counters. Every program
+// fetches, so traffic is guaranteed, and hits prove the level is
+// retaining lines rather than passing everything through.
+TEST(Core, L2IsSharedByBothSides) {
+    Core c(l2_cfg(true));
+    c.write_reg(1, BASE);
+    c.write_reg(6, 8);
+    c.load_program(l2_program());
+    c.run(100000);
+    ASSERT_TRUE(c.halted());
+
+    ASSERT_NE(c.l2(), nullptr);
+    EXPECT_GT(c.l2()->misses(), 0u);
+    EXPECT_GT(c.l2()->hits(),   0u);
+}
+
+// The L2 is off by default, so no existing configuration grows a
+// middle tier behind its back.
+TEST(Core, L2IsOffByDefault) {
+    Core c(cfg());
+    EXPECT_EQ(c.l2(), nullptr);
 }

@@ -74,6 +74,18 @@ public:
     // Inspection (for tests): was the current/last request a hit?
     bool last_was_hit() const { return last_hit_; }
 
+    // True when no request is outstanding, i.e. the port is free for a
+    // new one. A shared level (see memory/unified_l2.h) uses this to
+    // know when to hand the cache to another client.
+    bool idle() const { return phase_ == Phase::Idle; }
+
+    // Demand accesses counted at the cycle each one starts (never on
+    // the repeated ready() polls that follow). A demand that merges
+    // with an in-flight prefetch counts as a miss — the line was not
+    // resident when it was asked for.
+    uint64_t hits()   const { return hits_; }
+    uint64_t misses() const { return misses_; }
+
 private:
     enum class Phase { Idle, HitWait, WriteBack, MissFetch, PrefetchWait };
 
@@ -137,6 +149,8 @@ private:
     uint32_t wb_addr_       = 0;       // dirty victim's address to flush
     int      hit_remaining_ = 0;
     bool     last_hit_      = false;
+    uint64_t hits_          = 0;
+    uint64_t misses_        = 0;
 
     // Prefetch engine state (independent of the demand phase above).
     std::unique_ptr<PrefetchPolicy> pf_policy_;   // null = disabled

@@ -140,6 +140,7 @@ bool Cache::ready(uint32_t addr, bool is_write) {
         uint32_t set  = index_of(addr);
         int w = find_way(addr);
         last_hit_ = (w >= 0);
+        if (last_hit_) ++hits_; else ++misses_;
 
         // Keep the background engine fed for the line past this access;
         // a no-op if one is already queued or prefetching is disabled.
