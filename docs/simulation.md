@@ -198,8 +198,11 @@ ELF must match `Core::base_` (enforced by an exception); `link.ld` places
 
 ```bash
 ./build/bench_run [--trace=<file>] [--cycles=<file>] [--mem-latency=<n>] \
-    [--dcache] [--dcache-ways=<n>] [--imem-latency=<n>] [--icache] \
-    [--icache-ways=<n>] [--bpred] <elf> [max_cycles]
+    [--dcache] [--dcache-ways=<n>] [--dcache-sets=<n>] \
+    [--imem-latency=<n>] [--icache] [--icache-ways=<n>] [--icache-sets=<n>] \
+    [--iprefetch] [--iprefetch-degree=<n>] \
+    [--l2] [--l2-sets=<n>] [--l2-ways=<n>] [--l2-lat=<n>] \
+    [--bpred] <elf> [max_cycles]
 ```
 
 `bench_run` loads the ELF, optionally attaches a Tracer writing to
@@ -211,8 +214,11 @@ registers.
 
 The remaining flags are the **performance-mode** knobs: `--mem-latency`/
 `--imem-latency` set the D-/I-memory serve latency (the miss penalty once
-a cache is enabled); `--dcache`/`--icache` (+ `-ways=`) turn on the L1
-caches; `--bpred` turns on the BTB + bimodal branch predictor. See
+a cache is enabled); `--dcache`/`--icache` (+ `-ways=`, `-sets=`) turn on
+the L1 caches; `--iprefetch` adds next-line instruction prefetch; `--l2`
+(+ `-sets=`, `-ways=`, `-lat=`) adds the L2 shared by both L1s, and makes
+`--mem-latency` specifically the DRAM/L2-miss penalty for *both* sides;
+`--bpred` turns on the BTB + bimodal branch predictor. See
 [Memory Model](memory-model.md) and [Branch Prediction](branch-prediction.md)
 for what each models, and [Performance Report](../report.md) for results
 across configurations.

@@ -3,6 +3,11 @@
 #
 # Usage:
 #   tools/spike_diff.sh <elf> [build_dir]
+#   BENCH_FLAGS="--l2 --dcache" tools/spike_diff.sh <elf> [build_dir]
+#
+# BENCH_FLAGS passes perf-mode knobs through to bench_run. Data is
+# independent of the timing configuration, so every config must produce
+# the same trace — which is exactly what makes this worth checking.
 #
 # Requires:
 #   spike, bench_run (in build_dir)
@@ -22,6 +27,7 @@ set -euo pipefail
 ELF="${1:?usage: spike_diff.sh <elf> [build_dir]}"
 BUILD="${2:-./build}"
 BENCH_RUN="$BUILD/bench_run"
+BENCH_FLAGS="${BENCH_FLAGS:-}"
 
 # Program load base — matches Core's base_ and bench_run's -m region.
 BASE="0x80000000"
@@ -54,7 +60,8 @@ SPIKE=$(mktemp /tmp/cpusim_spike_prog_XXXXXX.trace)
 trap 'rm -f "$OUR_FULL" "$OUR" "$SPIKE_FULL" "$SPIKE"' EXIT
 
 # ── Our trace ────────────────────────────────────────────────────────
-"$BENCH_RUN" --trace="$OUR_FULL" "$ELF" > /dev/null
+# shellcheck disable=SC2086  # BENCH_FLAGS is intentionally word-split
+"$BENCH_RUN" --trace="$OUR_FULL" $BENCH_FLAGS "$ELF" > /dev/null
 awk -v base="$BASE" -v ebreak="$EBREAK" "$AWK_FILTER" "$OUR_FULL" > "$OUR"
 
 # ── Spike trace ──────────────────────────────────────────────────────

@@ -13,8 +13,11 @@ int main(int argc, char* argv[]) {
         std::fprintf(stderr,
             "usage: bench_run [--trace=<file>] [--cycles=<file>] "
             "[--mem-latency=<n>] [--dcache] [--dcache-ways=<n>] "
+            "[--dcache-sets=<n>] "
             "[--imem-latency=<n>] [--icache] [--icache-ways=<n>] "
+            "[--icache-sets=<n>] "
             "[--iprefetch] [--iprefetch-degree=<n>] "
+            "[--l2] [--l2-sets=<n>] [--l2-ways=<n>] [--l2-lat=<n>] "
             "[--bpred] <elf> [max_cycles]\n");
         return 1;
     }
@@ -26,11 +29,17 @@ int main(int argc, char* argv[]) {
     unsigned    mem_latency  = 5;         // data-memory serve latency
     bool        dcache       = false;     // enable the L1 D-cache
     unsigned    dcache_ways  = 1;         // D-cache associativity
+    unsigned    dcache_sets  = 64;        // D-cache sets (64 x 32 B = 2 KiB)
     unsigned    imem_latency = 1;         // instruction-memory serve latency
     bool        icache       = false;     // enable the L1 I-cache
     unsigned    icache_ways  = 1;         // I-cache associativity
+    unsigned    icache_sets  = 64;        // I-cache sets (64 x 32 B = 2 KiB)
     bool        iprefetch        = false; // enable I-cache prefetch
     unsigned    iprefetch_degree = 1;     // prefetch chain length
+    bool        l2           = false;     // enable the shared L2
+    unsigned    l2_sets      = 512;       // L2 sets (512 x 32 B = 16 KiB)
+    unsigned    l2_ways      = 1;         // L2 associativity
+    unsigned    l2_lat       = 10;        // L2 hit latency
     bool        bpred        = false;     // enable the branch predictor
 
     for (int i = 1; i < argc; ++i) {
@@ -46,6 +55,9 @@ int main(int argc, char* argv[]) {
         } else if (std::strncmp(argv[i], "--dcache-ways=", 14) == 0) {
             dcache_ways = static_cast<unsigned>(
                 std::strtoul(argv[i] + 14, nullptr, 10));
+        } else if (std::strncmp(argv[i], "--dcache-sets=", 14) == 0) {
+            dcache_sets = static_cast<unsigned>(
+                std::strtoul(argv[i] + 14, nullptr, 10));
         } else if (std::strncmp(argv[i], "--imem-latency=", 15) == 0) {
             imem_latency = static_cast<unsigned>(
                 std::strtoul(argv[i] + 15, nullptr, 10));
@@ -54,11 +66,25 @@ int main(int argc, char* argv[]) {
         } else if (std::strncmp(argv[i], "--icache-ways=", 14) == 0) {
             icache_ways = static_cast<unsigned>(
                 std::strtoul(argv[i] + 14, nullptr, 10));
+        } else if (std::strncmp(argv[i], "--icache-sets=", 14) == 0) {
+            icache_sets = static_cast<unsigned>(
+                std::strtoul(argv[i] + 14, nullptr, 10));
         } else if (std::strcmp(argv[i], "--iprefetch") == 0) {
             iprefetch = true;
         } else if (std::strncmp(argv[i], "--iprefetch-degree=", 19) == 0) {
             iprefetch_degree = static_cast<unsigned>(
                 std::strtoul(argv[i] + 19, nullptr, 10));
+        } else if (std::strcmp(argv[i], "--l2") == 0) {
+            l2 = true;
+        } else if (std::strncmp(argv[i], "--l2-sets=", 10) == 0) {
+            l2_sets = static_cast<unsigned>(
+                std::strtoul(argv[i] + 10, nullptr, 10));
+        } else if (std::strncmp(argv[i], "--l2-ways=", 10) == 0) {
+            l2_ways = static_cast<unsigned>(
+                std::strtoul(argv[i] + 10, nullptr, 10));
+        } else if (std::strncmp(argv[i], "--l2-lat=", 9) == 0) {
+            l2_lat = static_cast<unsigned>(
+                std::strtoul(argv[i] + 9, nullptr, 10));
         } else if (std::strcmp(argv[i], "--bpred") == 0) {
             bpred = true;
         } else if (elf_path == nullptr) {
@@ -77,11 +103,17 @@ int main(int argc, char* argv[]) {
     cfg.dmem_latency_cycles = mem_latency;   // becomes the miss penalty
     cfg.dcache_enabled      = dcache;
     cfg.dcache_ways         = dcache_ways;
+    cfg.dcache_sets         = dcache_sets;
     cfg.imem_latency_cycles = imem_latency;  // becomes the I-miss penalty
     cfg.icache_enabled      = icache;
     cfg.icache_ways         = icache_ways;
+    cfg.icache_sets         = icache_sets;
     cfg.icache_prefetch_enabled = iprefetch;
     cfg.icache_prefetch_degree  = iprefetch_degree;
+    cfg.l2_enabled          = l2;
+    cfg.l2_sets             = l2_sets;
+    cfg.l2_ways             = l2_ways;
+    cfg.l2_hit_latency_cycles = l2_lat;
     cfg.bpred_enabled       = bpred;
 
     try {
@@ -120,15 +152,19 @@ int main(int argc, char* argv[]) {
         std::printf("mem lat:   %u cycle(s)%s\n", mem_latency,
                     dcache ? " (miss penalty)" : "");
         std::printf("dcache:    %s", dcache ? "on" : "off");
-        if (dcache) std::printf(" (%u-way)", dcache_ways);
+        if (dcache) std::printf(" (%u sets, %u-way)", dcache_sets, dcache_ways);
         std::printf("\n");
         std::printf("imem lat:  %u cycle(s)%s\n", imem_latency,
                     icache ? " (miss penalty)" : "");
         std::printf("icache:    %s", icache ? "on" : "off");
-        if (icache) std::printf(" (%u-way)", icache_ways);
+        if (icache) std::printf(" (%u sets, %u-way)", icache_sets, icache_ways);
         std::printf("\n");
         std::printf("iprefetch: %s", iprefetch ? "on" : "off");
         if (iprefetch) std::printf(" (degree %u)", iprefetch_degree);
+        std::printf("\n");
+        std::printf("l2:        %s", l2 ? "on" : "off");
+        if (l2) std::printf(" (%u sets, %u-way, %u-cycle hit)",
+                            l2_sets, l2_ways, l2_lat);
         std::printf("\n");
         std::printf("bpred:     %s\n", bpred ? "on" : "off");
         const cpusim::SimStats& s = core.stats();
@@ -144,6 +180,16 @@ int main(int argc, char* argv[]) {
                             s.icache_prefetch_useful),
                         static_cast<unsigned long long>(
                             s.icache_prefetch_useless));
+        if (const cpusim::UnifiedL2* l2p = core.l2()) {
+            unsigned long long l2h = l2p->hits();
+            unsigned long long l2m = l2p->misses();
+            std::printf("l2 hit/miss: %llu/%llu", l2h, l2m);
+            if (l2h + l2m)
+                std::printf("  (%.2f%% hit rate)",
+                            100.0 * static_cast<double>(l2h) /
+                            static_cast<double>(l2h + l2m));
+            std::printf("\n");
+        }
         if (total)
             std::printf("accuracy:  %.2f%%\n",
                         100.0 * static_cast<double>(correct) / total);
