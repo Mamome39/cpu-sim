@@ -11,7 +11,7 @@ All bytes live in exactly **one** place: the backing `FlatMem`, sized to
 the full `ram_size_bytes` and treated as DRAM (the last level). It is the
 sole authority for **data**.
 
-Every level above it — currently the L1 cache — is a **timing overlay**. It
+Every level above it — the L1 caches and the L2 — is a **timing overlay**. It
 decides how many cycles an access costs; it never decides what value an
 access returns. `load_*` / `store_*` delegate straight to the backing store,
 so data is always correct and immediate.
@@ -45,7 +45,9 @@ A multi-cycle memory has to live inside the pipeline's two-phase clock. Any
 It mirrors the pipeline itself — `ready()` reads state, `tick()` commits
 progress — and it **nests**: a cache is a server to the MEM stage and a
 client to its backing memory, so on a miss it drives `backing.ready()` /
-`backing.tick()`. L1 → L2 → DRAM composes with the same two calls.
+`backing.tick()`. L1 → L2 → DRAM composes with the same two calls, which is
+why adding the L2 needed no change to `Cache` at all — see
+[L2 unified cache](#l2-unified-cache-current) below.
 
 **One outstanding request (blocking).** The memory serves a single access at
 a time; the pipeline stalls until it completes.
@@ -139,6 +141,114 @@ v1 omission (planned refinement, not a limitation of the model):
 - **Instruction prefetch** — the I-cache above is demand-fetch only.
   Sequential prefetch (fill the next line ahead of the demand miss) is
   the next step; see [report.md](../report.md) once it lands.
+
+---
+
+## L2 unified cache (current)
+
+One shared L2 between both L1s and DRAM (`memory/unified_l2.h`, classes
+`UnifiedL2` + `L2Port`), off by default:
+
+```
+    L1 I-cache ─┐                   ┌─ one tag array, both sides
+                ├─ L2Port ─→ L2 ────┴─→ DRAM
+    L1 D-cache ─┘
+```
+
+The L2 itself is **the same `Cache` class** as the L1s, instantiated with
+bigger, slower geometry. Nothing in it knows it is an L2: its backing is an
+`IMemory&`, and on a miss it drives that backing's `ready()`/`tick()` exactly
+as an L1 drives it. The recursive protocol above paid for the middle tier in
+advance.
+
+### What the levels cost
+
+| Access outcome | Cost |
+|----------------|------|
+| L1 hit | `<l1>_hit_latency_cycles` |
+| L1 miss, L2 hit | `l2_hit_latency_cycles` + `<l1>_hit_latency_cycles` |
+| L1 miss, L2 miss | `dmem_latency_cycles` + both of the above |
+
+Every row falls out of composition rather than being coded anywhere: a miss
+costs whatever the level below took to serve it, plus this level's own hit
+latency. `tests/unit/unified_l2_test.cpp` asserts the table directly — it is
+the model's correctness proof, since a timing bug is invisible to the Spike
+diff by construction (see "no timing oracle" below).
+
+**Latency semantics shift when the L2 is on.** `dmem_latency_cycles` stops
+meaning "the L1 miss penalty" and becomes specifically the *DRAM* (L2-miss)
+penalty. It also becomes the penalty for **both** sides: a unified L2 has one
+memory under it, so `imem_latency_cycles` no longer describes what an
+instruction miss pays once it is past the L2.
+
+### "Unified" — one tag array, two clients
+
+Sharing is the point, and it cuts both ways: a line either L1 pulls in is
+already warm for the other, and the two sides **compete for the same
+capacity** (an instruction line can evict a data line — something private L2s
+could never do to each other). Both directions are pinned down by tests.
+
+Sharing is also what forces **arbitration**, because `Cache` serves one
+blocking request at a time. `L2Port` gives each L1 an `IMemory` view of the
+shared level under two rules:
+
+1. **Ownership** — the first port to ask holds the L2 until its access
+   completes; the other is told "not ready" and retries. This is not a
+   simplification: a single-ported cache really can serve only one access at
+   a time.
+2. **One clock, one advance** — the L2 ticks at most once per simulated
+   cycle no matter how many ports drive it, and *any* port may be the one to
+   advance it.
+3. **First refusal** — a port turned away is next in line, and the port that
+   just gave the L2 up cannot immediately re-take it while that waiter is
+   still asking.
+
+Rules 2 and 3 are load-bearing rather than cosmetic, and each fixes a
+specific way the two sides otherwise wedge:
+
+- **Rule 2 (deadlock).** The front end stops ticking entirely during a MEM
+  stall (see [Architecture § Stalls](architecture.md#stalls)), so if only the
+  owner could advance the L2, an I-side owner frozen by a D-side stall would
+  wedge the very D-side that froze it — a case an in-order core hits
+  constantly. Letting the stalled D side drive the frozen owner's fill to
+  completion breaks it: the fill lands, the L2 goes idle, ownership passes.
+- **Rule 3 (livelock).** `Core::tick()` evaluates fetch before MEM, so the I
+  side asks first every cycle — and with no I-cache above it to absorb
+  fetches, it asks *every* cycle. Plain first-come ownership then lets it
+  re-take the L2 the instant rule 2 frees it, and the D side never runs
+  again. This is measured, not theoretical: `--l2` without `--icache`
+  retired **7 instructions in 5,000 cycles** before rule 3 existed. The
+  reservation lapses once its holder stops asking, so a port that walks away
+  from a request (a prefetch dropped for a colliding demand) cannot wedge the
+  other side in turn.
+
+The modeled cost of the hand-off: a port can lose ownership between asking
+and being served (its line is installed, but it was frozen when the L2
+announced it). It re-asks and pays a fresh L2 *hit* rather than resuming —
+bounded, self-converging, and pessimistic in the honest direction. Fairness
+costs the L2 an idle cycle when a reservation is being honoured.
+
+All three rules are pinned down by tests in
+`tests/unit/unified_l2_test.cpp`, including both wedge cases above.
+
+### Two properties worth stating explicitly
+
+- **Inclusion: NINE** (non-inclusive non-exclusive). Each level installs on
+  its own miss and never back-invalidates the other. Under the tags-only
+  model this has **no functional effect whatsoever** — it changes only which
+  tags are resident, hence future timing. True inclusion (an L2 eviction
+  forcing L1 back-invalidation) would need the L2 to reach up into the L1s,
+  and there is no reason to yet.
+- **The Harvard split survives.** `L2Port` routes *data* to its own side's
+  authority (`imem_` or `dram_`) and only *timing* to the shared L2. So the
+  instruction and data sides still cannot see each other's stores, and
+  enabling the L2 is **structurally incapable** of moving a committed value —
+  which is what keeps the Spike diff valid under every L2 configuration.
+
+Configured via `SimConfig` `l2_*` (line size, sets, ways, hit latency);
+`bench_run` exposes `--l2`, `--l2-sets=`, `--l2-ways=`, `--l2-lat=` and
+prints the L2 hit rate. Measurements are in
+[report.md](../report.md#l2-unified-cache).
 
 ---
 

@@ -50,7 +50,7 @@ All tests should pass. To run a specific suite:
 | 5 | L1 D-cache — direct-mapped, write-allocate, timing overlay | Done ✅ |
 | 5b | L1 caches — set-associative (tree-PLRU) + write-back timing, I-cache with front-end stall | Done ✅ |
 | 5c | Instruction prefetch (next-line + overlapped engine) | Done ✅ |
-| 6 | L2 unified cache | Not started |
+| 6 | L2 unified cache — shared by both L1s, arbitrated ports | Done ✅ |
 | 7 | Branch predictor — BTB + bimodal (2-bit) | Done ✅ |
 | 7b | gshare upgrade (global history) | Not started |
 | 8 | TLB + virtual memory | Not started |
@@ -69,8 +69,8 @@ instruction. (See [Simulation](docs/simulation.md).)
 
 **Performance mode** — counts cycles and reports where they were spent.
 Component latencies and cache/predictor geometry are configured in
-`SimConfig` before the run (memory latency, D-/I-cache size + ways,
-BTB/BHT entries). `SimStats` is a passive probe attached to EX that
+`SimConfig` before the run (memory latency, D-/I-cache size + ways, L2
+size + latency, BTB/BHT entries). `SimStats` is a passive probe attached to EX that
 counts branch outcomes (correct vs. mispredicted); `bench_run` prints
 cycles, IPC, and branch accuracy at the end. Stall-cause cycle counts
 (load-use vs. cache-miss vs. fetch-stall) aren't broken out inside a

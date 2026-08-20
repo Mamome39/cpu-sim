@@ -12,6 +12,10 @@ Three independent levers attack three different cycle sources:
 - the **branch predictor** removes branch-flush cycles (each
   misprediction is a 2-cycle flush in this pipeline).
 
+A fourth, the **shared L2**, does not remove a cycle source of its own —
+it makes the L1s' misses cheaper. That difference is what its section
+below is about.
+
 Generated with `tools/bench_run`; instruction counts are retired
 commit-trace lines. Reproduce steps are at the bottom.
 
@@ -186,6 +190,140 @@ benchmark with a large loop body is the next thing worth writing.
 
 ---
 
+## L2 unified cache
+
+One L2 shared by both L1s (`--l2`), sitting between them and DRAM. Unlike
+the three levers above it introduces no new cycle *source* to remove;
+it re-prices an existing one, turning an L1 miss from a full DRAM trip
+into an L2 hit. So its value depends entirely on whether the L1s are
+missing for a reason the L2 can fix.
+
+DRAM is held at 50 cycles throughout this section (`--mem-latency=50
+--imem-latency=50`) so the tiers are legible, with a 10-cycle L2.
+
+### At the default L1 geometry: it doesn't pay
+
+Both L1s at their usual 64 sets × 32 B = 2 KiB.
+
+| Benchmark | no L2 | IPC | + L2 | IPC | Δ cycles | L2 hit rate |
+|-----------|------:|----:|-----:|----:|---------:|------------:|
+| bubble_sort | 23,840 | 0.70 | 23,940 | 0.70 | **+100** | 1/15 (7%) |
+| fibonacci | 2,851,900 | 0.74 | 2,852,090 | 0.74 | **+190** | 0/19 (0%) |
+| crc32 | 22,851 | 0.71 | 23,061 | 0.71 | **+210** | 5/46 (11%) |
+| matmul | 646,576 | 0.68 | 618,026 | 0.72 | **−28,550** | 743/855 (87%) |
+| sieve | 49,483 | 0.65 | 50,133 | 0.64 | **+650** | 1/70 (1%) |
+
+**Four of five get slower, and that is the correct result.** These
+benchmarks' working sets already fit in 2 KiB, so essentially every L1
+miss is *compulsory* — a first touch, which no cache below can have
+warm. The L2 cannot turn a compulsory miss into a hit; all it does is
+add its 10-cycle hit latency to the DRAM trip the miss was going to
+make anyway (50 → 60). With only 15–70 L2 accesses over an entire run,
+that is the whole effect, and it is bounded by `10 × misses`: fibonacci
+pays it exactly (19 misses, +190 cycles), the others less, because some
+of the added latency hides under stalls the pipeline was already
+paying.
+
+matmul is the exception and for the right reason: its column walk
+genuinely thrashes 2 KiB, so it has real **capacity** misses — 87% of
+its L2 accesses hit, and it wins 4.4%.
+
+The lesson is the one a real memory hierarchy teaches: **a level only
+pays for itself if the level above it is missing for capacity or
+conflict reasons.** Against compulsory misses, an extra tier is pure
+added latency.
+
+### Shrink the L1s and it pays enormously
+
+Same machine, L1s cut to 4 sets × 32 B = **128 B** each
+(`--dcache-sets=4 --icache-sets=4`) so the working sets genuinely
+spill:
+
+| Benchmark | no L2 | IPC | + L2 | IPC | speedup | L2 hit rate |
+|-----------|------:|----:|-----:|----:|:-------:|------------:|
+| bubble_sort | 40,490 | 0.41 | 27,270 | 0.61 | **1.49×** | 334/348 (96%) |
+| fibonacci | 3,269,450 | 0.64 | 2,935,600 | 0.72 | **1.11×** | 8,351/8,370 (99.8%) |
+| crc32 | 26,501 | 0.62 | 23,810 | 0.69 | **1.11×** | 81/122 (66%) |
+| matmul | 1,790,021 | 0.25 | 849,080 | 0.52 | **2.11×** | 23,875/23,987 (99.5%) |
+| sieve | 219,333 | 0.15 | 84,103 | 0.38 | **2.61×** | 3,398/3,467 (98%) |
+
+The miss counts barely move between the two tables (14 vs 14, 112 vs
+112 …) — those are the compulsory misses, and they are a property of
+the program, not the cache size. What explodes is the **hit** count:
+shrinking the L1s converts thousands of would-be DRAM trips into
+capacity misses that the L2 catches. sieve goes from 1 L2 hit to 3,398.
+
+### How much L2 latency is too much
+
+Cycles at stressed L1 geometry, sweeping `--l2-lat` against 50-cycle
+DRAM:
+
+| Benchmark | no L2 | lat 5 | lat 10 | lat 20 | lat 40 |
+|-----------|------:|------:|-------:|-------:|-------:|
+| bubble_sort | 40,490 | 25,530 | 27,270 | 30,750 | 37,710 |
+| fibonacci | 3,269,450 | 2,893,750 | 2,935,600 | 3,019,300 | 3,186,700 |
+| crc32 | 26,501 | 23,205 | 23,810 | 25,020 | **27,440** |
+| matmul | 1,790,021 | 729,150 | 849,080 | 1,088,940 | 1,568,660 |
+| sieve | 219,333 | 66,768 | 84,103 | 118,773 | 188,113 |
+
+The benefit decays smoothly toward the no-L2 column as L2 latency
+approaches DRAM's, which is what a tier that has stopped being a tier
+should look like. crc32 crosses over and goes **negative** at latency
+40: at a 66% hit rate, the 40 cycles paid on every access stop being
+recovered by the 34% that would have gone to DRAM anyway. A level whose
+latency is close to the one below it needs a very high hit rate to earn
+its place.
+
+### How much L2 capacity is enough
+
+Cycles / hit rate, sweeping `--l2-sets` at 32 B lines (8 sets = 256 B,
+512 sets = 16 KiB):
+
+| Benchmark | 8 (256 B) | 32 (1 KiB) | 128 (4 KiB) | 512 (16 KiB) |
+|-----------|----------:|-----------:|------------:|-------------:|
+| bubble_sort | 27,620 / 95% | 27,620 / 95% | 27,620 / 95% | 27,270 / 96% |
+| fibonacci | 2,944,250 / 99% | 2,935,600 / 100% | 2,935,600 / 100% | 2,935,600 / 100% |
+| crc32 | 27,310 / 35% | 24,260 / 64% | 24,260 / 64% | 23,810 / 66% |
+| matmul | 1,324,180 / 63% | 1,046,780 / 86% | 867,830 / 98% | 849,080 / 100% |
+| sieve | 246,753 / 50% | 206,503 / 62% | 84,203 / 98% | 84,103 / 98% |
+
+Each benchmark has a knee at its own working-set size and is flat after
+it: sieve needs 128 sets (its bitmap), matmul keeps improving to 512
+(two matrices plus the walk), while bubble_sort and fibonacci are done
+at 8. Below its knee the shared level thrashes and stops earning its
+latency — at 8 sets crc32 (27,310) and sieve (246,753) are both *worse*
+than having no L2 at all (26,501 and 219,333), for the same reason any
+too-small cache loses: it pays on every access and hits on too few.
+
+### The "unified" part
+
+The L2 is unified in the strict sense: **one tag array**, so a line
+either L1 pulls in is already warm for the other, and the two sides
+compete for the same capacity — an instruction line can evict a data
+line, which private per-side L2s could never do to each other. The
+counters above are the sum over both sides.
+
+That sharing is also why the L2 needs arbitration the L1s don't (a
+cache serves one blocking request at a time), and the arbitration is
+where the interesting bugs were. Two rules exist because the two sides
+otherwise wedge: a stalled D side must be able to drive a *frozen*
+I-side owner's fill to completion (else deadlock, since the front end
+stops ticking during a MEM stall), and a port that just released the
+L2 must not immediately re-take it (else livelock — `--l2` without
+`--icache` retired 7 instructions in 5,000 cycles before that rule).
+Both, plus the sharing and the three-tier latency table, are pinned
+down in `tests/unit/unified_l2_test.cpp`; there is no Spike oracle for
+timing, so those tests *are* the correctness argument. See
+[memory-model.md](docs/memory-model.md#l2-unified-cache-current).
+
+**Verdict: not worth enabling by default at this L1 size** — the same
+verdict instruction prefetch got, for the same underlying reason. The
+benchmark suite has no capacity problem for it to solve. The mechanism
+is correct and its payoff is large (up to 2.6×) exactly when the level
+above it starts missing for reasons a cache can fix.
+
+---
+
 ## Branch prediction
 
 Isolated at single-cycle memory (no cache), so branch flushes are the
@@ -306,10 +444,26 @@ cmake --build build -j$(nproc)          # builds the core + benchmarks
 ./build/bench_run --mem-latency=5 --imem-latency=5 --dcache --icache           ./build/<b>.elf
 ./build/bench_run --mem-latency=5 --imem-latency=5 --dcache --icache --bpred   ./build/<b>.elf
 
+# L2 (DRAM held at 50 so the tiers are legible):
+./build/bench_run --mem-latency=50 --imem-latency=50 --dcache --icache \
+    [--l2] [--l2-lat=<n>] [--l2-sets=<n>] ./build/<b>.elf
+# The stressed-L1 tables add --dcache-sets=4 --icache-sets=4.
+# prints "l2 hit/miss:" and the hit rate when --l2 is on.
+
 # bench_run prints cycles: and mispred: in its summary.
 # Instruction count (retired commit-trace lines), config-invariant:
 ./build/bench_run --trace=/tmp/t.trace ./build/<b>.elf && wc -l /tmp/t.trace
 ```
 
 Correctness of any config: `tools/spike_diff.sh ./build/<b>.elf ./build`
-(data is independent of the timing configuration).
+(data is independent of the timing configuration). To diff a *specific*
+configuration rather than the default, pass it through:
+
+```sh
+BENCH_FLAGS="--mem-latency=50 --imem-latency=50 --dcache --dcache-sets=4 \
+    --icache --icache-sets=4 --l2 --l2-lat=10 --bpred" \
+    tools/spike_diff.sh ./build/<b>.elf ./build
+```
+
+All five benchmarks pass under the L2 configurations above — as they
+must, since the L2's ports carry timing only and never data.
